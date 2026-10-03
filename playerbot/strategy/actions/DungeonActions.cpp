@@ -358,7 +358,7 @@ bool ai::GetDungeonConsumableBuffs(PlayerbotAI* ai, uint32& flask, uint32& food,
     if (!map || (!map->IsDungeon() && !map->IsRaid()))
         return false;
 
-    if (ai->IsTank(bot, true) || (!ai->IsRanged(bot) && !ai->IsHeal(bot)))
+    if (ai->IsTank(bot, true) || bot->getClass() == CLASS_HUNTER || (!ai->IsRanged(bot) && !ai->IsHeal(bot)))
     {
         flask = 17626;
         food = 25660;
