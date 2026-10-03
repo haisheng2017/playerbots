@@ -5,12 +5,21 @@
 #include "playerbot/ServerFacade.h"
 #include "playerbot/strategy/AiObjectContext.h"
 #include "playerbot/strategy/values/HazardsValue.h"
+#include "playerbot/strategy/actions/DungeonActions.h"
 #include "playerbot/strategy/actions/MovementActions.h"
 #include "Grids/GridNotifiers.h"
 #include "Grids/GridNotifiersImpl.h"
 #include "Grids/CellImpl.h"
 
 using namespace ai;
+
+bool DungeonConsumableBuffTrigger::IsActive()
+{
+    uint32 flask = 0;
+    uint32 food = 0;
+    uint32 fireProtection = 0;
+    return GetDungeonConsumableBuffs(ai, flask, food, fireProtection);
+}
 
 bool EnterDungeonTrigger::IsActive()
 {

@@ -58,6 +58,16 @@ namespace ai
         bool healersSafe;
     };
 
+    class ApplyDungeonConsumableBuffAction : public Action
+    {
+    public:
+        ApplyDungeonConsumableBuffAction(PlayerbotAI* ai) : Action(ai, "dungeon consumable buff") {}
+        bool Execute(Event& event) override;
+        bool isUseful() override;
+    };
+
+    bool GetDungeonConsumableBuffs(PlayerbotAI* ai, uint32& flask, uint32& food, uint32& fireProtection);
+
     class MoveAwayFromSpecificCreatures : public MoveAwayFromCreature
     {
     public:

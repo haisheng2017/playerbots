@@ -14,6 +14,8 @@
 #include "strategy/actions/InviteToGroupAction.h"
 #include "AiFactory.h"
 #include "Guilds/GuildMgr.h"
+#include <boost/algorithm/string.hpp>
+#include <set>
 
 #ifdef GenerateBotTests
 #include "strategy/tests/TestAction.h"
@@ -1873,6 +1875,7 @@ void PlayerbotHolder::CreateBot(Player* master, const std::string param, std::li
     BotRoles role = BotRoles::BOT_ROLE_NONE;
     std::string groupWith = master ? master->GetName() : "";
     std::string gear = "default";
+    std::string specName;
 
     std::vector<std::string> args = Qualified::getMultiQualifiers(param, " ");
     for (const auto& arg : args)
@@ -1904,6 +1907,8 @@ void PlayerbotHolder::CreateBot(Player* master, const std::string param, std::li
             groupWith = value;
         else if (key == "gear")
             gear = value;
+        else if (key == "spec")
+            specName = value;
         else if (key == "test")
         {
             testName = value;
@@ -2016,7 +2021,7 @@ void PlayerbotHolder::CreateBot(Player* master, const std::string param, std::li
             newBot->learnDefaultSpells();
 
             std::ostringstream out;
-            ChangeTalentsAction::AutoSelectTalents(newBot, &out, role);
+            ChangeTalentsAction::AutoSelectTalents(newBot, &out, role, specName);
 
             sRandomPlayerbotMgr.SetValue(botGuid, "create levelup", 1);
         }
@@ -2087,6 +2092,160 @@ std::list<std::string> PlayerbotHolder::HandleCreate(Player* master, const std::
     return messages;
 }
 
+namespace
+{
+    struct GroupCompSlot
+    {
+        uint8 cls = 0;
+        BotRoles role = BotRoles::BOT_ROLE_NONE;
+        std::string specName;
+        uint32 count = 0;
+    };
+
+    bool PremadeSpecMatches(uint8 cls, uint32 specNo, BotRoles role, const std::string& specName)
+    {
+        if (!specNo)
+            return false;
+
+        uint32 specId = specNo - 1;
+        for (auto& path : sPlayerbotAIConfig.classSpecs[cls].talentPath)
+        {
+            if (path.talentSpec.empty())
+                continue;
+
+            if (path.id != specId)
+                continue;
+
+            if (!specName.empty() && !boost::icontains(path.name, specName))
+                return false;
+
+            if (role != BotRoles::BOT_ROLE_NONE && AiFactory::GetPlayerRoles(cls, path.talentSpec.back().highestTree()) != role)
+                return false;
+
+            return true;
+        }
+
+        return false;
+    }
+
+    void ConsumeCompSlotForMember(uint8 cls, BotRoles role, uint32 specNo, std::vector<GroupCompSlot>& slots)
+    {
+        auto consume = [&](bool requireNamedSpec)
+        {
+            for (auto& slot : slots)
+            {
+                if (!slot.count || slot.cls != cls || slot.role != role)
+                    continue;
+
+                if (requireNamedSpec)
+                {
+                    if (slot.specName.empty() || !PremadeSpecMatches(cls, specNo, role, slot.specName))
+                        continue;
+                }
+                else if (!slot.specName.empty())
+                    continue;
+
+                slot.count--;
+                return true;
+            }
+
+            return false;
+        };
+
+        if (!consume(true))
+            consume(false);
+    }
+
+    bool ReuseMatchingGroupBot(Player* master, uint8 cls, BotRoles role, const std::string& specName, uint32 level, const std::string& gear, std::set<uint32>& claimedGuids, std::list<std::string>& messages)
+    {
+        if (!master || !cls || !level)
+            return false;
+
+        std::ostringstream accounts;
+        bool anyAccount = false;
+        for (uint32 accountId : sPlayerbotAIConfig.randomBotAccounts)
+        {
+            if (anyAccount)
+                accounts << ",";
+            accounts << accountId;
+            anyAccount = true;
+        }
+
+        if (!anyAccount)
+            return false;
+
+        auto result = CharacterDatabase.PQuery(
+            "SELECT c.guid, c.account, c.name, c.race FROM characters c "
+            "LEFT JOIN group_member gm ON c.guid = gm.memberGuid "
+            "WHERE c.online = 0 AND c.class = %u AND c.level = %u AND c.account IN (%s) AND gm.memberGuid IS NULL",
+            cls, level, accounts.str().c_str());
+
+        if (!result)
+            return false;
+
+        do
+        {
+            Field* fields = result->Fetch();
+            uint32 guid = fields[0].GetUInt32();
+            uint32 accountId = fields[1].GetUInt32();
+            std::string name = fields[2].GetString();
+            uint8 race = fields[3].GetUInt8();
+
+            if (claimedGuids.count(guid))
+                continue;
+
+            if (Player::TeamForRace(race) != master->GetTeam())
+                continue;
+
+            ObjectGuid objectGuid(HIGHGUID_PLAYER, guid);
+            if (sObjectMgr.GetPlayer(objectGuid, false))
+                continue;
+
+            bool pendingLogin = false;
+            for (auto const& alt : sPlayerbotAIConfig.freeAltBots)
+            {
+                if (alt.second == guid)
+                {
+                    pendingLogin = true;
+                    break;
+                }
+            }
+            if (pendingLogin)
+                continue;
+
+            uint32 specNo = sRandomPlayerbotMgr.GetValue(guid, "specNo");
+            if (!PremadeSpecMatches(cls, specNo, role, specName))
+                continue;
+
+            claimedGuids.insert(guid);
+
+            sRandomPlayerbotMgr.SetValue(guid, "create group", 1, master->GetName());
+            sRandomPlayerbotMgr.SetValue(guid, "create gear", 1, gear);
+
+            CharacterDatabase.PExecute(
+                "UPDATE characters SET map = %u, position_x = %f, position_y = %f, position_z = %f, orientation = %f WHERE guid = %u",
+                master->GetMapId(), master->GetPositionX(), master->GetPositionY(), master->GetPositionZ(), master->GetOrientation(), guid);
+
+            sPlayerbotAIConfig.freeAltBots.push_back(std::make_pair(accountId, guid));
+            messages.push_back("Bot reused: " + name);
+            return true;
+        } while (result->NextRow());
+
+        return false;
+    }
+
+    bool GroupFillAddedBot(const std::list<std::string>& result)
+    {
+        for (auto const& message : result)
+        {
+            if (message.find("Bot created:") != std::string::npos || message.find("Bot reused:") != std::string::npos)
+                return true;
+        }
+
+        return false;
+    }
+}
+
 std::list<std::string> PlayerbotHolder::HandleGroup(Player* master, const std::string param, AccountTypes security)
 {
     std::list<std::string> messages;
@@ -2097,17 +2256,19 @@ std::list<std::string> PlayerbotHolder::HandleGroup(Player* master, const std::s
         return messages;
     }
 
-    uint32 masterLevel = master->GetLevel();
-    uint8 masterClass = master->getClass();
+    uint32 botLevel = master->GetLevel();
     Team team = master->GetTeam();
-    BotRoles masterRole = AiFactory::GetPlayerRoles(master);
-    uint8 groupSize = 5;
-    uint8 currentGroupSize = 1;
+    uint32 groupSize = 5;
+    bool sizeSpecified = false;
+    uint32 currentGroupSize = 1;
     Group* group = master->GetGroup();
     if (group)
         currentGroupSize = group->GetMembersCount();
 
     std::string passThroughParam = "";
+    std::string gear = "default";
+    std::string compValue;
+    std::vector<GroupCompSlot> slots;
 
     std::vector<std::string> args = Qualified::getMultiQualifiers(param, " ");
     for (const auto& arg : args)
@@ -2120,90 +2281,207 @@ std::list<std::string> PlayerbotHolder::HandleGroup(Player* master, const std::s
         std::string value = arg.substr(eqPos + 1);
 
         if (key == "size" && Qualified::isValidNumberString(value))
+        {
             groupSize = stoi(value);
+            sizeSpecified = true;
+        }
+        else if (key == "comp")
+            compValue = value;
         else
+        {
+            if (key == "level" && Qualified::isValidNumberString(value))
+                botLevel = stoul(value);
+            if (key == "gear")
+                gear = value;
             passThroughParam += key + "=" + value + " ";
+        }
     }
-    
-    std::unordered_map<uint8, std::unordered_map<BotRoles, uint32>> allowedClassNr = LfgAction::AllowedClassRoleNr(master, groupSize);
 
+    if (!compValue.empty())
+    {
+        std::vector<std::string> entries = Qualified::getMultiQualifiers(compValue, ",");
+        for (const auto& entry : entries)
+        {
+            std::vector<std::string> parts = Qualified::getMultiQualifiers(entry, ":");
+            if (parts.size() != 3 && parts.size() != 4)
+            {
+                messages.push_back("Invalid comp entry '" + entry + "'. Use class:role:count or class:role:spec:count");
+                return messages;
+            }
+
+            uint8 cls = ChatHelper::parseClass(parts[0]);
+            BotRoles role = ChatHelper::parseRole(parts[1]);
+            std::string specName;
+            std::string countText = parts.back();
+            if (parts.size() == 4)
+                specName = parts[2];
+
+            if (!cls)
+            {
+                messages.push_back("Unknown class in comp: " + parts[0]);
+                return messages;
+            }
+            if (role == BotRoles::BOT_ROLE_NONE)
+            {
+                messages.push_back("Unknown role in comp: " + parts[1] + " (use tank, heal, or dps)");
+                return messages;
+            }
+            if (!Qualified::isValidNumberString(countText))
+            {
+                messages.push_back("Invalid count in comp: " + entry);
+                return messages;
+            }
+
+            uint32 count = stoul(countText);
+            if (!count)
+                continue;
+
+            slots.push_back({ cls, role, specName, count });
+        }
+
+        if (slots.empty())
+        {
+            messages.push_back("comp= did not contain any bots to add");
+            return messages;
+        }
+
+        if (!sizeSpecified)
+        {
+            groupSize = 0;
+            for (auto const& slot : slots)
+                groupSize += slot.count;
+        }
+
+        auto consumeMember = [&](Player* member)
+        {
+            if (!member)
+                return;
+            ConsumeCompSlotForMember(member->getClass(), AiFactory::GetPlayerRoles(member),
+                sRandomPlayerbotMgr.GetValue(member->GetGUIDLow(), "specNo"), slots);
+        };
+
+        if (group)
+        {
+            for (GroupReference* ref = group->GetFirstMember(); ref; ref = ref->next())
+                consumeMember(ref->getSource());
+        }
+        else
+            consumeMember(master);
+    }
+
+    std::set<uint32> claimedGuids;
     RandomPlayerbotFactory factory(0);
 
-    uint32 maxTries = 100*groupSize;
+    auto addBot = [&, this](uint8 cls, BotRoles role, const std::string& specName) -> bool
+    {
+        std::list<std::string> result;
+        if (ReuseMatchingGroupBot(master, cls, role, specName, botLevel, gear, claimedGuids, result))
+        {
+            messages.splice(messages.end(), result);
+            return true;
+        }
+
+        std::ostringstream paramStr;
+        paramStr << "level=" << botLevel << " class=" << ChatHelper::formatClass(cls)
+            << " role=" << ChatHelper::formatRole(role) << " group=" << master->GetName();
+        if (!specName.empty())
+            paramStr << " spec=" << specName;
+        paramStr << " " << passThroughParam;
+
+        result = HandleCreate(master, paramStr.str(), security);
+        bool added = GroupFillAddedBot(result);
+        messages.splice(messages.end(), result);
+        return added;
+    };
 
     uint32 botsCreated = 0;
     uint32 continue_role = 0, continue_race = 0, continue_class = 0;
     std::map<uint8, uint32> classesCreated;
 
-    while (currentGroupSize < groupSize)
+    if (!slots.empty())
     {
-        maxTries--;
-        if (!maxTries)
-            break;
-
-        static const BotRoles roleValues[] = { BOT_ROLE_TANK, BOT_ROLE_HEALER, BOT_ROLE_DPS };
-        std::vector<BotRoles> availableRoles;
-        for (BotRoles candidate : roleValues)
+        for (auto const& slot : slots)
         {
-            if (allowedClassNr[0][candidate] > 0)
-                availableRoles.push_back(candidate);
+            for (uint32 i = 0; i < slot.count; ++i)
+            {
+                if (sizeSpecified && currentGroupSize >= groupSize)
+                    break;
+
+                if (!addBot(slot.cls, slot.role, slot.specName))
+                    continue;
+
+                classesCreated[slot.cls]++;
+                botsCreated++;
+                currentGroupSize++;
+            }
         }
+    }
+    else
+    {
+        std::unordered_map<uint8, std::unordered_map<BotRoles, uint32>> allowedClassNr = LfgAction::AllowedClassRoleNr(master, groupSize > 255 ? 255 : uint8(groupSize));
+        uint32 maxTries = 100 * groupSize;
 
-        if (availableRoles.empty())
-            break;
+        while (currentGroupSize < groupSize)
+        {
+            maxTries--;
+            if (!maxTries)
+                break;
 
-        BotRoles role = availableRoles[urand(0, (uint32)availableRoles.size() - 1)];
+            static const BotRoles roleValues[] = { BOT_ROLE_TANK, BOT_ROLE_HEALER, BOT_ROLE_DPS };
+            std::vector<BotRoles> availableRoles;
+            for (BotRoles candidate : roleValues)
+            {
+                if (allowedClassNr[0][candidate] > 0)
+                    availableRoles.push_back(candidate);
+            }
 
-        uint8 cls = factory.GetRandomClass(0, role);
+            if (availableRoles.empty())
+                break;
+
+            BotRoles role = availableRoles[urand(0, (uint32)availableRoles.size() - 1)];
+
+            uint8 cls = factory.GetRandomClass(0, role);
 
 #ifdef MANGOSBOT_ZERO
-        if (cls == CLASS_PALADIN && team == HORDE)
-        {
-            continue_race++;
-            continue;
-        }
-        if (cls == CLASS_SHAMAN && team == ALLIANCE)
-        {
-            continue_race++;
-            continue;
-        }
+            if (cls == CLASS_PALADIN && team == HORDE)
+            {
+                continue_race++;
+                continue;
+            }
+            if (cls == CLASS_SHAMAN && team == ALLIANCE)
+            {
+                continue_race++;
+                continue;
+            }
 #endif
 
-        if (allowedClassNr[cls].find(role) != allowedClassNr[cls].end() && allowedClassNr[cls][role] == 0)
-        {
-            continue_class++;
-            continue;
-        }
+            if (allowedClassNr[cls].find(role) != allowedClassNr[cls].end() && allowedClassNr[cls][role] == 0)
+            {
+                continue_class++;
+                continue;
+            }
 
-        std::ostringstream paramStr;
-        paramStr << "level=" << masterLevel << " class=" << ChatHelper::formatClass(cls) << " group=" << master->GetName() << " " << passThroughParam; //Passthrough will override.
+            if (!addBot(cls, role, ""))
+                continue;
 
-        auto result = HandleCreate(master, paramStr.str(), security);
-        bool created = !result.empty() && result.front().find("Bot created:") == 0;
-        messages.splice(messages.end(), result);
-
-        if (created)
-        {
             classesCreated[cls]++;
             botsCreated++;
             currentGroupSize++;
+            allowedClassNr[0][role]--;
+            if (allowedClassNr[cls].find(role) != allowedClassNr[cls].end())
+                allowedClassNr[cls][role]--;
         }
-    
-        allowedClassNr[0][role]--; 
-        
-        if (allowedClassNr[cls].find(role) != allowedClassNr[cls].end())
-            allowedClassNr[cls][role]--;
-    }
 
-    std::ostringstream debugInfo;
-    debugInfo << "DEBUG group: target=" << (int)groupSize << ", created=" << botsCreated;
-    if (maxTries == 0)
-        debugInfo << " (maxTries exhausted)";
-    debugInfo << ", continues: role=" << continue_role << ", race=" << continue_race << ", class=" << continue_class;
-    debugInfo << ", classes: ";
-    for (auto& kv : classesCreated)
-        debugInfo << ChatHelper::formatClass(kv.first) << "=" << kv.second << ",";
-    sLog.outString("%s", debugInfo.str().c_str());
+        std::ostringstream debugInfo;
+        debugInfo << "DEBUG group: target=" << groupSize << ", created=" << botsCreated;
+        if (maxTries == 0)
+            debugInfo << " (maxTries exhausted)";
+        debugInfo << ", continues: role=" << continue_role << ", race=" << continue_race << ", class=" << continue_class;
+        debugInfo << ", classes: ";
+        for (auto& kv : classesCreated)
+            debugInfo << ChatHelper::formatClass(kv.first) << "=" << kv.second << ",";
+        sLog.outString("%s", debugInfo.str().c_str());
+    }
 
     return messages;
 }
@@ -2758,7 +3036,7 @@ std::unordered_map<std::string, std::string> PlayerbotHolder::GetCommandTexts()
         {"reload", "Reload the playerbot config (GM only).\nUsage: .(rnd)bot reload"},
         {"tweak", "Adjust the tweak value for testing (GM only).\nUsage: .(rnd)bot tweak"},
         {"self", "Enable self-bot mode for a player.\nUsage: .(rnd)bot self <playername>"},
-        {"group", "Create 4 bots with complementary classes at master's level.\nUsage: .(rnd)bot group"},
+        {"group", "Create complementary bots around the master.\nUsage: .(rnd)bot group size=40 level=60 gear=best comp=warrior:tank:2,priest:heal:4,mage:dps:8,warrior:dps:arms:2"},
         {"create", "Create a new bot character.\nUsage: .(rnd)bot create level=<n> class=<class> race=<race>"},
         {"spoof", "Spoof as another bot for command routing.\nUsage: .(rnd)bot spoof <botname>"},
         {"runtest", "Run bot tests.\nUsage: .rndbot runtest <testnamepart> [count]"},

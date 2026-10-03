@@ -20,6 +20,13 @@ namespace ai
         uint32 mapID;
     };
 
+    class DungeonConsumableBuffTrigger : public Trigger
+    {
+    public:
+        DungeonConsumableBuffTrigger(PlayerbotAI* ai) : Trigger(ai, "dungeon consumable buff", 2) {}
+        bool IsActive() override;
+    };
+
     class LeaveDungeonTrigger : public Trigger
     {
     public:

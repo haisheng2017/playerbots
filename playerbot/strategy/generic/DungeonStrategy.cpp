@@ -31,6 +31,10 @@ void DungeonStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 void DungeonStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     triggers.push_back(new TriggerNode(
+        "dungeon consumable buff",
+        NextAction::array(0, new NextAction("dungeon consumable buff", 90.0f), NULL)));
+
+    triggers.push_back(new TriggerNode(
         "enter onyxias lair",
         NextAction::array(0, new NextAction("enable onyxias lair strategy", 100.0f), NULL)));
 
