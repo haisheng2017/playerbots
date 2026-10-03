@@ -3,6 +3,7 @@
 #include "playerbot/Talentspec.h"
 #include "ChangeTalentsAction.h"
 #include "playerbot/AiFactory.h"
+#include <boost/algorithm/string.hpp>
 
 using namespace ai;
 
@@ -164,7 +165,7 @@ std::vector<TalentPath*> ChangeTalentsAction::getPremadePaths(uint8 cls, std::st
     std::vector<TalentPath*> ret;
     for (auto& path : sPlayerbotAIConfig.classSpecs[cls].talentPath)
     {
-        if (!findName.empty() && path.name.find(findName) == std::string::npos)
+        if (!findName.empty() && !boost::icontains(path.name, findName))
             continue;
 
         if (role != BotRoles::BOT_ROLE_NONE && AiFactory::GetPlayerRoles(cls, path.talentSpec.back().highestTree()) != role)
@@ -252,7 +253,7 @@ TalentPath* ChangeTalentsAction::PickPremadePath(std::vector<TalentPath*> paths,
     return paths[0];
 }
 
-bool ChangeTalentsAction::AutoSelectTalents(Player* bot, std::ostringstream* out, BotRoles role)
+bool ChangeTalentsAction::AutoSelectTalents(Player* bot, std::ostringstream* out, BotRoles role, const std::string& specName)
 {
     //Does the bot have talentpoints?
     if (bot->GetLevel() < 10)
@@ -299,7 +300,7 @@ bool ChangeTalentsAction::AutoSelectTalents(Player* bot, std::ostringstream* out
         int currentTree = oldSpec.highestTree();
         std::vector<TalentPath*> paths;
         
-        if (oldSpec.points)
+        if (specName.empty() && oldSpec.points)
             paths = getPremadePaths(bot, &oldSpec);
 
         if (paths.size() == 0) //No spec like the old one found. Pick any.
@@ -307,10 +308,10 @@ bool ChangeTalentsAction::AutoSelectTalents(Player* bot, std::ostringstream* out
             if (bot->CalculateTalentsPoints() > 0)
                 *out << "No specs like the current spec found.";
 
-            paths = getPremadePaths(bot->getClass(), "", role);
+            paths = getPremadePaths(bot->getClass(), specName, role);
 
             if (paths.empty() && role != BotRoles::BOT_ROLE_NONE)
-                paths = getPremadePaths(bot->getClass(), "", BotRoles::BOT_ROLE_NONE);
+                paths = getPremadePaths(bot->getClass(), specName, BotRoles::BOT_ROLE_NONE);
         }   
 
         if(paths.size() > 0 && oldSpec.GetTalentPoints() > 0)

@@ -956,7 +956,7 @@ bool ChatHelper::parseable(const std::string& text)
 
 BotRoles ChatHelper::parseRole(const std::string& text)
 {
-    if (boost::iequals(text, "healer"))
+    if (boost::iequals(text, "healer") || boost::iequals(text, "heal"))
         return BotRoles::BOT_ROLE_HEALER;
     else if (boost::iequals(text, "tank"))
         return BotRoles::BOT_ROLE_TANK;
