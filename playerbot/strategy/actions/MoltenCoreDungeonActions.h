@@ -47,15 +47,33 @@ namespace ai
         MoveToMCRuneAction(PlayerbotAI* ai) : MoveToAction(ai, "move to mc rune") { qualifier = "entry filter::{gos in sight,mc runes}"; }
     };
 
-    class DouseMCRuneActionAqual : public UseItemIdAction
+    class DouseMCRuneActionBase : public UseItemIdAction
     {
     public:
-        DouseMCRuneActionAqual(PlayerbotAI* ai) : UseItemIdAction(ai, "douse mc rune aqual") { qualifier = "{17333,entry filter::{gos close,mc runes}}"; }
+        DouseMCRuneActionBase(PlayerbotAI* ai, std::string name) : UseItemIdAction(ai, name) {}
+        bool Execute(Event& event) override;
+
+    protected:
+        std::string GetTargetRuneName();
     };
 
-    class DouseMCRuneActionEternal : public UseItemIdAction
+    class DouseMCRuneActionAqual : public DouseMCRuneActionBase
     {
     public:
-        DouseMCRuneActionEternal(PlayerbotAI* ai) : UseItemIdAction(ai, "douse mc rune eternal") { qualifier = "{22754,entry filter::{gos close,mc runes}}"; }
+        DouseMCRuneActionAqual(PlayerbotAI* ai) : DouseMCRuneActionBase(ai, "douse mc rune aqual") { qualifier = "{17333,entry filter::{gos close,mc runes}}"; }
+    };
+
+    class DouseMCRuneActionEternal : public DouseMCRuneActionBase
+    {
+    public:
+        DouseMCRuneActionEternal(PlayerbotAI* ai) : DouseMCRuneActionBase(ai, "douse mc rune eternal") { qualifier = "{22754,entry filter::{gos close,mc runes}}"; }
+    };
+
+    class RefreshMCQuintessenceAction : public Action
+    {
+    public:
+        RefreshMCQuintessenceAction(PlayerbotAI* ai) : Action(ai, "refresh mc quintessence") {}
+        bool Execute(Event& event) override;
+        bool isPossible() override;
     };
 }

@@ -52,7 +52,7 @@ namespace ai
         MCRuneInSightTrigger(PlayerbotAI* ai) : ValueTrigger(ai, "mc rune in sight", 1)
         {
             qualifier = "and::{"
-                "action possible::use id::17333,"
+                "or::{action possible::use id::17333,action possible::use id::22754},"
                 "has object::go usable filter::go trapped filter::entry filter::{gos in sight,mc runes},"
                 "not::has object::entry filter::{gos close,mc runes}"
                 "}";
@@ -63,5 +63,12 @@ namespace ai
     {
     public:
         MCRuneCloseTrigger(PlayerbotAI* ai) : ValueTrigger(ai, "mc rune close", 1) { qualifier = "has object::go usable filter::entry filter::{gos close,mc runes}"; }
+    };
+
+    class MCQuintessenceMissingTrigger : public Trigger
+    {
+    public:
+        MCQuintessenceMissingTrigger(PlayerbotAI* ai) : Trigger(ai, "mc quintessence missing", 2) {}
+        bool IsActive() override;
     };
 }

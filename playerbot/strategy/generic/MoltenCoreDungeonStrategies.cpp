@@ -28,6 +28,11 @@ void MoltenCoreDungeonStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& t
         NextAction::array(0, new NextAction("use id::{17333,entry filter::{gos close,mc runes}}", 1.0f), NULL)));
         */
 
+    // Dousing item refill: keep 1 Aqual Quintessence in the bot's bags (douse once, refill one)
+    triggers.push_back(new TriggerNode(
+        "mc quintessence missing",
+        NextAction::array(0, new NextAction("refresh mc quintessence", 10.0f), NULL)));
+
     triggers.push_back(new TriggerNode(
         "mc rune in sight",
         NextAction::array(0, new NextAction("move to mc rune", 1.0f), NULL)));
