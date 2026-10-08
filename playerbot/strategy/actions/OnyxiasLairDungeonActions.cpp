@@ -589,43 +589,10 @@ int ai::GetOnyxiaPhase(Unit* onyxia)
     return 3;
 }
 
-Player* ai::GetOnyxiaMainTank(Player* bot)
-{
-    if (!bot)
-        return nullptr;
-
-    Group* group = bot->GetGroup();
-    if (!group)
-        return PlayerbotAI::IsTank(bot, true) ? bot : nullptr;
-
-    auto consider = [&](Player* member) -> bool
-    {
-        return member && member->IsAlive() && member->GetMapId() == bot->GetMapId() && PlayerbotAI::IsTank(member, true);
-    };
-
-    // Raid frames are groups 1-8. Inside a group the roster order is top to bottom.
-    // The first living tank in that order is the main tank.
-    uint8 groupCount = group->IsRaidGroup() ? MAX_RAID_SUBGROUPS : 1;
-    for (uint8 subgroup = 0; subgroup < groupCount; ++subgroup)
-    {
-        for (Group::member_citerator itr = group->GetMemberSlots().begin(); itr != group->GetMemberSlots().end(); ++itr)
-        {
-            if (itr->group != subgroup)
-                continue;
-
-            Player* member = sObjectMgr.GetPlayer(itr->guid);
-            if (consider(member))
-                return member;
-        }
-    }
-
-    return nullptr;
-}
-
 bool ai::IsOnyxiaMainTank(PlayerbotAI* ai)
 {
     Player* bot = ai->GetBot();
-    return GetOnyxiaMainTank(bot) == bot;
+    return ai->GetMainTank() == bot;
 }
 
 Unit* ai::FindOnyxiaWhelpInRoom(Player* bot)
@@ -909,7 +876,7 @@ Unit* ai::FindOnyxiaFearWardTarget(PlayerbotAI* ai)
         return nullptr;
 
     std::list<Unit*> candidates;
-    if (Player* tank = GetOnyxiaMainTank(bot))
+    if (Player* tank = ai->GetMainTank())
         candidates.push_back(tank);
 
     Unit* onyxia = FindOnyxia(bot);

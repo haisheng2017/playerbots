@@ -2894,6 +2894,40 @@ bool PlayerbotAI::IsTank(Player* player, bool inGroup)
     return (botRoles & BOT_ROLE_TANK) != 0;
 }
 
+Player* PlayerbotAI::GetMainTank()
+{
+    Player* bot = GetBot();
+    if (!bot)
+        return nullptr;
+
+    Group* group = bot->GetGroup();
+    if (!group)
+        return IsTank(bot, true) ? bot : nullptr;
+
+    auto consider = [&](Player* member) -> bool
+    {
+        return member && member->IsAlive() && member->GetMapId() == bot->GetMapId() && IsTank(member, true);
+    };
+
+    // Raid frames are groups 1-8. Inside a group the roster order is top to bottom.
+    // The first living tank in that order is the main tank.
+    uint8 groupCount = group->IsRaidGroup() ? MAX_RAID_SUBGROUPS : 1;
+    for (uint8 subgroup = 0; subgroup < groupCount; ++subgroup)
+    {
+        for (Group::member_citerator itr = group->GetMemberSlots().begin(); itr != group->GetMemberSlots().end(); ++itr)
+        {
+            if (itr->group != subgroup)
+                continue;
+
+            Player* member = sObjectMgr.GetPlayer(itr->guid);
+            if (consider(member))
+                return member;
+        }
+    }
+
+    return nullptr;
+}
+
 bool PlayerbotAI::IsHeal(Player* player, bool inGroup)
 {
     PlayerbotAI* botAi = player->GetPlayerbotAI();

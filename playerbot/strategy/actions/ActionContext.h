@@ -395,6 +395,27 @@ namespace ai
             creators["disable magmadar fight strategy"] = [](PlayerbotAI* ai) { return new MagmadarDisableFightStrategyAction(ai); };
             creators["move away from magmadar"] = [](PlayerbotAI* ai) { return new MagmadarMoveAwayAction(ai); };
 
+            creators["enable baron geddon fight strategy"] = [](PlayerbotAI* ai) { return new BaronGeddonEnableFightStrategyAction(ai); };
+            creators["disable baron geddon fight strategy"] = [](PlayerbotAI* ai) { return new BaronGeddonDisableFightStrategyAction(ai); };
+            creators["move away from baron geddon inferno"] = [](PlayerbotAI* ai) { return new BaronGeddonMoveAwayFromInfernoAction(ai); };
+            creators["move away from baron geddon armageddon"] = [](PlayerbotAI* ai) { return new BaronGeddonMoveAwayFromArmageddonAction(ai); };
+            creators["baron geddon living bomb escape"] = [](PlayerbotAI* ai) { return new BaronGeddonLivingBombEscapeAction(ai); };
+
+            creators["enable shazzrah fight strategy"] = [](PlayerbotAI* ai) { return new ShazzrahEnableFightStrategyAction(ai); };
+            creators["disable shazzrah fight strategy"] = [](PlayerbotAI* ai) { return new ShazzrahDisableFightStrategyAction(ai); };
+            creators["move away from shazzrah"] = [](PlayerbotAI* ai) { return new ShazzrahMoveAwayAction(ai); };
+
+            creators["enable sulfuron fight strategy"] = [](PlayerbotAI* ai) { return new SulfuronEnableFightStrategyAction(ai); };
+            creators["disable sulfuron fight strategy"] = [](PlayerbotAI* ai) { return new SulfuronDisableFightStrategyAction(ai); };
+            creators["attack sulfuron add"] = [](PlayerbotAI* ai) { return new SulfuronAttackAddAction(ai); };
+            creators["attack sulfuron boss"] = [](PlayerbotAI* ai) { return new AttackSulfuronBossAction(ai); };
+
+            creators["enable majordomo fight strategy"] = [](PlayerbotAI* ai) { return new MajordomoEnableFightStrategyAction(ai); };
+            creators["disable majordomo fight strategy"] = [](PlayerbotAI* ai) { return new MajordomoDisableFightStrategyAction(ai); };
+            creators["move away from majordomo"] = [](PlayerbotAI* ai) { return new MajordomoMoveAwayAction(ai); };
+            creators["attack majordomo add"] = [](PlayerbotAI* ai) { return new MajordomoAttackAddAction(ai); };
+            creators["attack majordomo boss"] = [](PlayerbotAI* ai) { return new AttackMajordomoBossAction(ai); };
+
             creators["move away from hazard"] = [](PlayerbotAI* ai) { return new MoveAwayFromHazard(ai); };
             creators["dungeon consumable buff"] = [](PlayerbotAI* ai) { return new ApplyDungeonConsumableBuffAction(ai); };
             creators["move to mc rune"] = [](PlayerbotAI* ai) { return new MoveToMCRuneAction(ai); };

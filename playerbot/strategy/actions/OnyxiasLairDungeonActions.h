@@ -105,7 +105,6 @@ namespace ai
     Unit* FindNearestOnyxiaWhelp(Player* bot);
     Unit* FindOnyxiaWhelpInRoom(Player* bot);
     int GetOnyxiaPhase(Unit* onyxia);
-    Player* GetOnyxiaMainTank(Player* bot);
     bool IsOnyxiaMainTank(PlayerbotAI* ai);
     bool ShouldOnyxiaMainTankTaunt(PlayerbotAI* ai);
     bool ShouldAttackOnyxiaWhelp(PlayerbotAI* ai);

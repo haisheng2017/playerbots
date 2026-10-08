@@ -333,6 +333,27 @@ namespace ai
             creators["magmadar lava bomb"] = [](PlayerbotAI* ai) { return new MagmadarLavaBombTrigger(ai); };
             creators["magmadar too close"] = [](PlayerbotAI* ai) { return new MagmadarTooCloseTrigger(ai); };
 
+            creators["start baron geddon fight"] = [](PlayerbotAI* ai) { return new BaronGeddonStartFightTrigger(ai); };
+            creators["end baron geddon fight"] = [](PlayerbotAI* ai) { return new BaronGeddonEndFightTrigger(ai); };
+            creators["baron geddon inferno"] = [](PlayerbotAI* ai) { return new BaronGeddonInfernoTrigger(ai); };
+            creators["baron geddon armageddon"] = [](PlayerbotAI* ai) { return new BaronGeddonArmageddonTrigger(ai); };
+            creators["baron geddon living bomb"] = [](PlayerbotAI* ai) { return new BaronGeddonLivingBombTrigger(ai); };
+
+            creators["start shazzrah fight"] = [](PlayerbotAI* ai) { return new ShazzrahStartFightTrigger(ai); };
+            creators["end shazzrah fight"] = [](PlayerbotAI* ai) { return new ShazzrahEndFightTrigger(ai); };
+            creators["shazzrah too close"] = [](PlayerbotAI* ai) { return new ShazzrahTooCloseTrigger(ai); };
+
+            creators["start sulfuron fight"] = [](PlayerbotAI* ai) { return new SulfuronStartFightTrigger(ai); };
+            creators["end sulfuron fight"] = [](PlayerbotAI* ai) { return new SulfuronEndFightTrigger(ai); };
+            creators["sulfuron target"] = [](PlayerbotAI* ai) { return new SulfuronTargetTrigger(ai); };
+            creators["sulfuron main tank off boss"] = [](PlayerbotAI* ai) { return new SulfuronMainTankOffBossTrigger(ai); };
+
+            creators["start majordomo fight"] = [](PlayerbotAI* ai) { return new MajordomoStartFightTrigger(ai); };
+            creators["end majordomo fight"] = [](PlayerbotAI* ai) { return new MajordomoEndFightTrigger(ai); };
+            creators["majordomo too close"] = [](PlayerbotAI* ai) { return new MajordomoTooCloseTrigger(ai); };
+            creators["majordomo target"] = [](PlayerbotAI* ai) { return new MajordomoTargetTrigger(ai); };
+            creators["majordomo main tank off boss"] = [](PlayerbotAI* ai) { return new MajordomoMainTankOffBossTrigger(ai); };
+
             creators["fire protection potion ready"] = [](PlayerbotAI* ai) { return new FireProtectionPotionReadyTrigger(ai); };
 
             creators["mc rune in sight"] = [](PlayerbotAI* ai) { return new MCRuneInSightTrigger(ai); };
