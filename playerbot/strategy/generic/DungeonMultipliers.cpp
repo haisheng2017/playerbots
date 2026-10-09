@@ -93,3 +93,40 @@ float BossRtiAssistMultiplier::GetValue(Action* action)
 
     return 1.0f;
 }
+
+float KeepRaidOnBossMultiplier::GetValue(Action* action)
+{
+    if (!action)
+        return 1.0f;
+
+    // Which generic switch would pull this bot off its fight assignment
+    const std::string& name = action->getName();
+    bool offTankAssist = name == "tank assist" && ai->IsTank(bot) && ai->GetMainTank() != bot;
+    bool raidAssist = (name == "dps assist" || name == "dps aoe") && !ai->IsTank(bot);
+    if (!offTankAssist && !raidAssist)
+        return 1.0f;
+
+    // The assignments only bind while the boss and at least one of his adds are up:
+    // after that the generic assist takes over again on its own (e.g. cleaning up
+    // the leftover adds once the boss has died)
+    bool bossAlive = false;
+    bool addsAlive = false;
+    std::list<ObjectGuid> possibleTargets = AI_VALUE(std::list<ObjectGuid>, "possible attack targets");
+    for (const ObjectGuid& guid : possibleTargets)
+    {
+        Unit* unit = ai->GetUnit(guid);
+        if (!unit || !unit->IsAlive() || unit->GetTypeId() != TYPEID_UNIT)
+            continue;
+
+        if (unit->GetEntry() == bossEntry)
+            bossAlive = true;
+
+        for (uint32 entry : addEntries)
+        {
+            if (unit->GetEntry() == entry)
+                addsAlive = true;
+        }
+    }
+
+    return (bossAlive && addsAlive) ? 0.0f : 1.0f;
+}

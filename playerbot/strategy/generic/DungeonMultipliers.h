@@ -48,4 +48,25 @@ namespace ai
         uint32 bossEntry;
         std::vector<uint32> addEntries;
     };
+
+    // Garr-style fights: while the boss and his adds are both up the raid runs entirely on
+    // the fight strategy's own target assignments - the main tank holds the boss, the
+    // off-tanks hold the adds and everyone else damages the boss. The generic assists
+    // would keep re-targeting (least-HP add, skull, ...) and unravel those assignments,
+    // so hold them back:
+    // - "tank assist" for every tank but the main tank (the fight action drives them)
+    // - "dps assist"/"dps aoe" for the non-tanks (their damage stays on the boss)
+    class KeepRaidOnBossMultiplier : public Multiplier
+    {
+    public:
+        KeepRaidOnBossMultiplier(PlayerbotAI* ai, uint32 bossEntry, std::vector<uint32> addEntries)
+            : Multiplier(ai, "keep raid on boss"), bossEntry(bossEntry), addEntries(addEntries) {}
+
+    public:
+        virtual float GetValue(Action* action) override;
+
+    private:
+        uint32 bossEntry;
+        std::vector<uint32> addEntries;
+    };
 }

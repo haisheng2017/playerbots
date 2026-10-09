@@ -269,3 +269,56 @@ bool AttackBossEntryAction::Execute(Event& event)
     Player* requester = event.getOwner() ? event.getOwner() : GetMaster();
     return Attack(requester, boss);
 }
+
+bool AttackGarrAction::isUseful()
+{
+    // The tanks hold the boss and the Firesworn, the healers do not attack:
+    // this pin belongs to the raid's damage dealers only
+    return FindNearestCreatureOfEntries(bot, {bossEntry}) && !ai->IsTank(bot) && !ai->IsHeal(bot);
+}
+
+Creature* AttackGarrFireswornAction::FindFiresworn()
+{
+    // The raid's attackable list already filters the banished Firesworn out
+    std::list<ObjectGuid> possibleTargets = AI_VALUE(std::list<ObjectGuid>, "possible attack targets");
+
+    Creature* leastThreat = nullptr;
+    float minThreat = 0.0f;
+
+    for (const ObjectGuid& guid : possibleTargets)
+    {
+        Unit* unit = ai->GetUnit(guid);
+        if (!unit || !unit->IsAlive() || unit->GetTypeId() != TYPEID_UNIT || unit->GetEntry() != FIRESWORN_ENTRY)
+            continue;
+
+        // A Firesworn loose on a non-tank is about to kill someone: take that one first
+        Unit* victim = unit->GetVictim();
+        if (victim && victim->GetTypeId() == TYPEID_PLAYER && !ai->IsTank((Player*)victim))
+            return (Creature*)unit;
+
+        // Otherwise spread out over the adds: the one this off-tank has touched the least
+        float threat = sServerFacade.GetThreatManager(unit).getThreat(bot);
+        if (!leastThreat || threat < minThreat)
+        {
+            leastThreat = (Creature*)unit;
+            minThreat = threat;
+        }
+    }
+
+    return leastThreat;
+}
+
+bool AttackGarrFireswornAction::isUseful()
+{
+    return FindFiresworn() && ai->IsTank(bot) && ai->GetMainTank() != bot;
+}
+
+bool AttackGarrFireswornAction::Execute(Event& event)
+{
+    Unit* add = FindFiresworn();
+    if (!add)
+        return false;
+
+    Player* requester = event.getOwner() ? event.getOwner() : GetMaster();
+    return Attack(requester, add);
+}

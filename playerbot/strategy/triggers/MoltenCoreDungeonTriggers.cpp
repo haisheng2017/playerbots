@@ -25,6 +25,10 @@ namespace
     // Majordomo / Sulfuron: their adds heal each other, hitting the boss while they live is wasted
     constexpr float BOSS_ADD_TARGET_SEARCH_RANGE = 60.0f;
 
+    // Garr: the boss with his ring of Firesworn adds
+    constexpr uint32 GARR_ENTRY = 12057;
+    constexpr uint32 GARR_FIRESWORN_ENTRY = 12099;
+
     // Closest alive creature of the given entry around the bot, or nullptr
     Creature* FindCreatureByEntryAround(Player* bot, uint32 entry, float range)
     {
@@ -165,4 +169,59 @@ bool MainTankOffBossTrigger::IsActive()
     Unit* target = ai->GetUnit(AI_VALUE(ObjectGuid, "current target"));
     return !(target && target->IsInWorld() && target->IsAlive()
         && target->GetTypeId() == TYPEID_UNIT && target->GetEntry() == bossEntry);
+}
+
+bool GarrTargetTrigger::IsActive()
+{
+    if (!bot->IsInWorld() || !sServerFacade.IsAlive(bot))
+        return false;
+
+    // The tanks run their own assignments (main tank on Garr, off-tanks on the Firesworn)
+    // and healers do not attack at all
+    if (ai->IsTank(bot) || ai->IsHeal(bot))
+        return false;
+
+    // The raid's damage stays on Garr for as long as he is up
+    if (!FindCreatureByEntryAround(bot, GARR_ENTRY, BOSS_ADD_TARGET_SEARCH_RANGE))
+        return false;
+
+    // Anything but the living boss himself is a target to pull the bot back from
+    Unit* target = ai->GetUnit(AI_VALUE(ObjectGuid, "current target"));
+    return !(target && target->IsInWorld() && target->IsAlive()
+        && target->GetTypeId() == TYPEID_UNIT && target->GetEntry() == GARR_ENTRY);
+}
+
+bool GarrOffTankTrigger::IsActive()
+{
+    if (!bot->IsInWorld() || !sServerFacade.IsAlive(bot))
+        return false;
+
+    // Off-tanks only: the main tank holds Garr himself
+    if (!ai->IsTank(bot) || ai->GetMainTank() == bot)
+        return false;
+
+    // Nothing to grab while no un-banished Firesworn is within reach
+    bool fireswornUp = false;
+    std::list<ObjectGuid> possibleTargets = AI_VALUE(std::list<ObjectGuid>, "possible attack targets");
+    for (const ObjectGuid& guid : possibleTargets)
+    {
+        Unit* unit = ai->GetUnit(guid);
+        if (unit && unit->IsAlive() && unit->GetTypeId() == TYPEID_UNIT && unit->GetEntry() == GARR_FIRESWORN_ENTRY)
+        {
+            fireswornUp = true;
+            break;
+        }
+    }
+
+    if (!fireswornUp)
+        return false;
+
+    // Sticking with the Firesworn this off-tank is actually holding
+    Unit* target = ai->GetUnit(AI_VALUE(ObjectGuid, "current target"));
+    if (target && target->IsInWorld() && target->IsAlive()
+        && target->GetTypeId() == TYPEID_UNIT && target->GetEntry() == GARR_FIRESWORN_ENTRY
+        && target->GetVictim() == bot)
+        return false;
+
+    return true;
 }

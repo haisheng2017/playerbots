@@ -96,6 +96,32 @@ namespace ai
         MajordomoDisableFightStrategyAction(PlayerbotAI* ai) : ChangeAllStrategyAction(ai, "disable majordomo fight strategy", "-majordomo") {}
     };
 
+    class GarrEnableFightStrategyAction : public ChangeAllStrategyAction
+    {
+    public:
+        GarrEnableFightStrategyAction(PlayerbotAI* ai) : ChangeAllStrategyAction(ai, "enable garr fight strategy", "+garr") {}
+    };
+
+    class GarrDisableFightStrategyAction : public ChangeAllStrategyAction
+    {
+    public:
+        GarrDisableFightStrategyAction(PlayerbotAI* ai) : ChangeAllStrategyAction(ai, "disable garr fight strategy", "-garr") {}
+    };
+
+    // Garr is the banish fight: every warlock keeps one Firesworn banished while it lasts.
+    // "cc" is inert for the other classes here - their CCs cannot land on an elemental.
+    class GarrEnableWarlockCcAction : public ChangeAllStrategyAction
+    {
+    public:
+        GarrEnableWarlockCcAction(PlayerbotAI* ai) : ChangeAllStrategyAction(ai, "enable garr warlock cc", "+cc") {}
+    };
+
+    class GarrDisableWarlockCcAction : public ChangeAllStrategyAction
+    {
+    public:
+        GarrDisableWarlockCcAction(PlayerbotAI* ai) : ChangeAllStrategyAction(ai, "disable garr warlock cc", "-cc") {}
+    };
+
     class MajordomoMoveAwayAction : public MoveAwayFromCreature
     {
     public:
@@ -178,6 +204,40 @@ namespace ai
     {
     public:
         AttackMajordomoBossAction(PlayerbotAI* ai) : AttackBossEntryAction(ai, "attack majordomo boss", 12018) {}
+    };
+
+    // The main tank's pull back onto Garr while his Firesworn are still up
+    class AttackGarrBossAction : public AttackBossEntryAction
+    {
+    public:
+        AttackGarrBossAction(PlayerbotAI* ai) : AttackBossEntryAction(ai, "attack garr boss", 12057) {}
+    };
+
+    // Garr: the whole raid's damage stays on the boss while he lives - the Firesworn
+    // are tanked/banished, not killed. Usable by everyone but the tanks
+    // (who hold the boss and the adds) and the healers (who do not attack)
+    class AttackGarrAction : public AttackBossEntryAction
+    {
+    public:
+        AttackGarrAction(PlayerbotAI* ai) : AttackBossEntryAction(ai, "attack garr", 12057) {}
+        bool isUseful() override;
+    };
+
+    // An off-tank's Firesworn: the loose one chewing on a non-tank first, else the
+    // one it has built the least personal threat on (so the off-tanks spread out)
+    class AttackGarrFireswornAction : public AttackAction
+    {
+    public:
+        AttackGarrFireswornAction(PlayerbotAI* ai) : AttackAction(ai, "attack garr firesworn") {}
+
+        bool Execute(Event& event) override;
+        bool isUseful() override;
+
+    protected:
+        Creature* FindFiresworn();
+
+    private:
+        static constexpr uint32 FIRESWORN_ENTRY = 12099;
     };
 
     class MoveToMCRuneAction : public MoveToAction

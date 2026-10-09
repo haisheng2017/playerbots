@@ -354,6 +354,12 @@ namespace ai
             creators["majordomo target"] = [](PlayerbotAI* ai) { return new MajordomoTargetTrigger(ai); };
             creators["majordomo main tank off boss"] = [](PlayerbotAI* ai) { return new MajordomoMainTankOffBossTrigger(ai); };
 
+            creators["start garr fight"] = [](PlayerbotAI* ai) { return new GarrStartFightTrigger(ai); };
+            creators["end garr fight"] = [](PlayerbotAI* ai) { return new GarrEndFightTrigger(ai); };
+            creators["garr target"] = [](PlayerbotAI* ai) { return new GarrTargetTrigger(ai); };
+            creators["garr off tank"] = [](PlayerbotAI* ai) { return new GarrOffTankTrigger(ai); };
+            creators["garr main tank off boss"] = [](PlayerbotAI* ai) { return new GarrMainTankOffBossTrigger(ai); };
+
             creators["fire protection potion ready"] = [](PlayerbotAI* ai) { return new FireProtectionPotionReadyTrigger(ai); };
 
             creators["mc rune in sight"] = [](PlayerbotAI* ai) { return new MCRuneInSightTrigger(ai); };

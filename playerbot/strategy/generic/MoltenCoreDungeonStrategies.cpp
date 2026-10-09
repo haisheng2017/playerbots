@@ -26,6 +26,12 @@ void MoltenCoreDungeonStrategy::InitCombatTriggers(std::list<TriggerNode*>& trig
     triggers.push_back(new TriggerNode(
         "start majordomo fight",
         NextAction::array(0, new NextAction("enable majordomo fight strategy", 100.0f), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "start garr fight",
+        NextAction::array(0,
+            new NextAction("enable garr fight strategy", 100.0f),
+            new NextAction("enable garr warlock cc", 100.0f), NULL)));
 }
 
 void MoltenCoreDungeonStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
@@ -268,4 +274,52 @@ void MajordomoFightStrategy::InitCombatMultipliers(std::list<Multiplier*>& multi
 
     // Hold the assists back only while a skull parked on the boss would yank the raid off the adds
     multipliers.push_back(new BossRtiAssistMultiplier(ai, 12018, {11663, 11664}));
+}
+
+void GarrFightStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
+{
+    // The raid's damage stays on Garr while he lives: the Firesworn get held by the
+    // off-tanks and banished by the warlocks - killing one only erupts it (19497)
+    // and enrages the boss (19515->19516)
+    triggers.push_back(new TriggerNode(
+        "garr target",
+        NextAction::array(0, new NextAction("attack garr", 100.0f), NULL)));
+
+    // Pull the main tank back onto Garr after a one-shot player command (or a bad pull)
+    triggers.push_back(new TriggerNode(
+        "garr main tank off boss",
+        NextAction::array(0, new NextAction("attack garr boss", 100.0f), NULL)));
+
+    // The off-tanks hold the Firesworn the warlocks did not banish
+    triggers.push_back(new TriggerNode(
+        "garr off tank",
+        NextAction::array(0, new NextAction("attack garr firesworn", 100.0f), NULL)));
+}
+
+void GarrFightStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
+{
+    triggers.push_back(new TriggerNode(
+        "end garr fight",
+        NextAction::array(0,
+            new NextAction("disable garr fight strategy", 100.0f),
+            new NextAction("disable garr warlock cc", 100.0f), NULL)));
+}
+
+void GarrFightStrategy::InitDeadTriggers(std::list<TriggerNode*>& triggers)
+{
+    triggers.push_back(new TriggerNode(
+        "end garr fight",
+        NextAction::array(0,
+            new NextAction("disable garr fight strategy", 100.0f),
+            new NextAction("disable garr warlock cc", 100.0f), NULL)));
+}
+
+void GarrFightStrategy::InitCombatMultipliers(std::list<Multiplier*>& multipliers)
+{
+    // Never let "tank assist" pull the main tank off Garr while his Firesworn are alive
+    multipliers.push_back(new KeepMainTankOnBossMultiplier(ai, {12099}));
+
+    // While boss and Firesworn are both up the fight's assignments own the targeting:
+    // off-tanks stay on their adds and the raid stays on the boss
+    multipliers.push_back(new KeepRaidOnBossMultiplier(ai, 12057, {12099}));
 }

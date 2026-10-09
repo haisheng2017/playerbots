@@ -79,4 +79,17 @@ namespace ai
         void InitDeadTriggers(std::list<TriggerNode*>& triggers) override;
         void InitCombatMultipliers(std::list<Multiplier*>& multipliers) override;
     };
+
+    class GarrFightStrategy : public Strategy
+    {
+    public:
+        GarrFightStrategy(PlayerbotAI* ai) : Strategy(ai) {}
+        std::string getName() override { return "garr"; }
+
+    private:
+        void InitCombatTriggers(std::list<TriggerNode*>& triggers) override;
+        void InitNonCombatTriggers(std::list<TriggerNode*>& triggers) override;
+        void InitDeadTriggers(std::list<TriggerNode*>& triggers) override;
+        void InitCombatMultipliers(std::list<Multiplier*>& multipliers) override;
+    };
 }

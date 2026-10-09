@@ -178,6 +178,43 @@ namespace ai
         MajordomoMainTankOffBossTrigger(PlayerbotAI* ai) : MainTankOffBossTrigger(ai, "majordomo main tank off boss", 12018, {11663, 11664}) {}
     };
 
+    class GarrStartFightTrigger : public StartBossFightTrigger
+    {
+    public:
+        GarrStartFightTrigger(PlayerbotAI* ai) : StartBossFightTrigger(ai, "start garr fight", "garr", 12057) {}
+    };
+
+    class GarrEndFightTrigger : public EndBossFightTrigger
+    {
+    public:
+        GarrEndFightTrigger(PlayerbotAI* ai) : EndBossFightTrigger(ai, "end garr fight", "garr", 12057) {}
+    };
+
+    // Garr (12057): the Firesworn (12099) are held by the off-tanks and banished by the
+    // warlocks instead of being killed - killing one only erupts it (19497) and enrages
+    // the boss (19515->19516), so everyone else keeps their damage on Garr himself
+    class GarrTargetTrigger : public Trigger
+    {
+    public:
+        GarrTargetTrigger(PlayerbotAI* ai) : Trigger(ai, "garr target", 1) {}
+        bool IsActive() override;
+    };
+
+    // An off-tank currently holding none of the living Firesworn while some are still up
+    class GarrOffTankTrigger : public Trigger
+    {
+    public:
+        GarrOffTankTrigger(PlayerbotAI* ai) : Trigger(ai, "garr off tank", 1) {}
+        bool IsActive() override;
+    };
+
+    // Firesworn alive: pull the main tank back onto Garr after a one-shot player command (or a bad pull)
+    class GarrMainTankOffBossTrigger : public MainTankOffBossTrigger
+    {
+    public:
+        GarrMainTankOffBossTrigger(PlayerbotAI* ai) : MainTankOffBossTrigger(ai, "garr main tank off boss", 12057, {12099}) {}
+    };
+
     class FireProtectionPotionReadyTrigger : public ItemBuffReadyTrigger
     {
     public:

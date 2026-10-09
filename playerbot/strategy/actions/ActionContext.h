@@ -416,6 +416,14 @@ namespace ai
             creators["attack majordomo add"] = [](PlayerbotAI* ai) { return new MajordomoAttackAddAction(ai); };
             creators["attack majordomo boss"] = [](PlayerbotAI* ai) { return new AttackMajordomoBossAction(ai); };
 
+            creators["enable garr fight strategy"] = [](PlayerbotAI* ai) { return new GarrEnableFightStrategyAction(ai); };
+            creators["disable garr fight strategy"] = [](PlayerbotAI* ai) { return new GarrDisableFightStrategyAction(ai); };
+            creators["enable garr warlock cc"] = [](PlayerbotAI* ai) { return new GarrEnableWarlockCcAction(ai); };
+            creators["disable garr warlock cc"] = [](PlayerbotAI* ai) { return new GarrDisableWarlockCcAction(ai); };
+            creators["attack garr"] = [](PlayerbotAI* ai) { return new AttackGarrAction(ai); };
+            creators["attack garr boss"] = [](PlayerbotAI* ai) { return new AttackGarrBossAction(ai); };
+            creators["attack garr firesworn"] = [](PlayerbotAI* ai) { return new AttackGarrFireswornAction(ai); };
+
             creators["move away from hazard"] = [](PlayerbotAI* ai) { return new MoveAwayFromHazard(ai); };
             creators["dungeon consumable buff"] = [](PlayerbotAI* ai) { return new ApplyDungeonConsumableBuffAction(ai); };
             creators["move to mc rune"] = [](PlayerbotAI* ai) { return new MoveToMCRuneAction(ai); };
