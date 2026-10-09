@@ -184,6 +184,7 @@ namespace ai
             creators["sulfuron"] = [](PlayerbotAI* ai) { return new SulfuronFightStrategy(ai); };
             creators["majordomo"] = [](PlayerbotAI* ai) { return new MajordomoFightStrategy(ai); };
             creators["garr"] = [](PlayerbotAI* ai) { return new GarrFightStrategy(ai); };
+            creators["ragnaros"] = [](PlayerbotAI* ai) { return new RagnarosFightStrategy(ai); };
             creators["suppression room"] = [](PlayerbotAI* ai) { return new SuppressionRoomStrategy(ai); };
             creators["netherspite"] = [](PlayerbotAI* ai) { return new NetherspiteFightStrategy(ai); };
             creators["shade of aran"] = [](PlayerbotAI* ai) { return new ShadeOfAranFightStrategy(ai); };

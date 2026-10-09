@@ -2211,6 +2211,19 @@ void PlayerbotAI::HandleBotOutgoingPacket(const WorldPacket& packet)
         // write jump time
         uint32 curTime = sWorld.GetCurrentMSTime();
         jumpTime = curTime + sWorld.GetAverageDiff() + (uint32)(timeToLand * static_cast<uint32>(IN_MILLISECONDS)) + 1000;
+
+        // Snap the landing point onto the nearest walkable polygon: knockbacks
+        // (Ragnaros e.g.) fling bots into lava or onto unreachable ledges where
+        // their own pathfinding can never reach them (bot nav excludes magma).
+        // Molten Core only - open-world/pvp knockbacks keep their raw landing.
+        static constexpr uint32 MOLTEN_CORE_MAP_ID = 409;
+        if (!jumpInPlace && bot->GetMapId() == MOLTEN_CORE_MAP_ID)
+        {
+            WorldPosition landing = dest_calculated;
+            if (landing.ClosestCorrectPoint(15.0f, 10.0f, bot->GetInstanceId()))
+                dest_calculated = landing;
+        }
+
         SetJumpDestination(dest_calculated);
 
         // set highest jump point to relocate

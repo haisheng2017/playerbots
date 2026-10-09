@@ -424,6 +424,15 @@ namespace ai
             creators["attack garr boss"] = [](PlayerbotAI* ai) { return new AttackGarrBossAction(ai); };
             creators["attack garr firesworn"] = [](PlayerbotAI* ai) { return new AttackGarrFireswornAction(ai); };
 
+            creators["enable ragnaros fight strategy"] = [](PlayerbotAI* ai) { return new RagnarosEnableFightStrategyAction(ai); };
+            creators["disable ragnaros fight strategy"] = [](PlayerbotAI* ai) { return new RagnarosDisableFightStrategyAction(ai); };
+            creators["enable ragnaros warlock cc"] = [](PlayerbotAI* ai) { return new RagnarosEnableWarlockCcAction(ai); };
+            creators["disable ragnaros warlock cc"] = [](PlayerbotAI* ai) { return new RagnarosDisableWarlockCcAction(ai); };
+            creators["move away from ragnaros"] = [](PlayerbotAI* ai) { return new RagnarosMoveAwayAction(ai); };
+            creators["move away from ragnaros flame"] = [](PlayerbotAI* ai) { return new RagnarosMoveAwayFromFlameAction(ai); };
+            creators["attack ragnaros boss"] = [](PlayerbotAI* ai) { return new AttackRagnarosBossAction(ai); };
+            creators["attack ragnaros son"] = [](PlayerbotAI* ai) { return new AttackRagnarosSonAction(ai); };
+
             creators["move away from hazard"] = [](PlayerbotAI* ai) { return new MoveAwayFromHazard(ai); };
             creators["dungeon consumable buff"] = [](PlayerbotAI* ai) { return new ApplyDungeonConsumableBuffAction(ai); };
             creators["move to mc rune"] = [](PlayerbotAI* ai) { return new MoveToMCRuneAction(ai); };

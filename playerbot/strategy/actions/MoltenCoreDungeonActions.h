@@ -240,6 +240,59 @@ namespace ai
         static constexpr uint32 FIRESWORN_ENTRY = 12099;
     };
 
+    class RagnarosEnableFightStrategyAction : public ChangeAllStrategyAction
+    {
+    public:
+        RagnarosEnableFightStrategyAction(PlayerbotAI* ai) : ChangeAllStrategyAction(ai, "enable ragnaros fight strategy", "+ragnaros") {}
+    };
+
+    class RagnarosDisableFightStrategyAction : public ChangeAllStrategyAction
+    {
+    public:
+        RagnarosDisableFightStrategyAction(PlayerbotAI* ai) : ChangeAllStrategyAction(ai, "disable ragnaros fight strategy", "-ragnaros") {}
+    };
+
+    // The Sons of Flame are banishable elementals: the warlocks keep a share of
+    // them out of the fight while everyone else burns the rest (the garr pattern)
+    class RagnarosEnableWarlockCcAction : public ChangeAllStrategyAction
+    {
+    public:
+        RagnarosEnableWarlockCcAction(PlayerbotAI* ai) : ChangeAllStrategyAction(ai, "enable ragnaros warlock cc", "+cc") {}
+    };
+
+    class RagnarosDisableWarlockCcAction : public ChangeAllStrategyAction
+    {
+    public:
+        RagnarosDisableWarlockCcAction(PlayerbotAI* ai) : ChangeAllStrategyAction(ai, "disable ragnaros warlock cc", "-cc") {}
+    };
+
+    class RagnarosMoveAwayAction : public MoveAwayFromCreature
+    {
+    public:
+        RagnarosMoveAwayAction(PlayerbotAI* ai) : MoveAwayFromCreature(ai, "move away from ragnaros", 11502, 30.0f) {}
+    };
+
+    // Run away from the flame of Might of Ragnaros (~2000 fire damage around it)
+    class RagnarosMoveAwayFromFlameAction : public MoveAwayFromCreature
+    {
+    public:
+        RagnarosMoveAwayFromFlameAction(PlayerbotAI* ai) : MoveAwayFromCreature(ai, "move away from ragnaros flame", 13148, 13.0f) {}
+    };
+
+    // The main tank's pull back onto Ragnaros: he is rooted but nukes random
+    // players whenever nobody stood in his melee range long enough
+    class AttackRagnarosBossAction : public AttackBossEntryAction
+    {
+    public:
+        AttackRagnarosBossAction(PlayerbotAI* ai) : AttackBossEntryAction(ai, "attack ragnaros boss", 11502) {}
+    };
+
+    class AttackRagnarosSonAction : public AttackBossAddAction
+    {
+    public:
+        AttackRagnarosSonAction(PlayerbotAI* ai) : AttackBossAddAction(ai, "attack ragnaros son", {12143}) {}
+    };
+
     class MoveToMCRuneAction : public MoveToAction
     {
     public:

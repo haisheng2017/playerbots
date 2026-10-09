@@ -1145,7 +1145,9 @@ bool WorldPosition::ClosestCorrectPoint(float maxRange, float maxHeight, uint32 
 
     dtNavMeshQuery const* query = mmap->GetNavMeshQuery(getMapId(), instanceId);
 
-    MANGOS_ASSERT(query && query->getAttachedNavMesh());
+    // No navmesh for this map/instance — leave the point untouched instead of asserting
+    if (!query || !query->getAttachedNavMesh())
+        return false;
 
     float curPoint[VERTEX_SIZE] = {coord_y, coord_z, coord_x };
     float extend[VERTEX_SIZE] = { maxRange, maxHeight, maxRange };

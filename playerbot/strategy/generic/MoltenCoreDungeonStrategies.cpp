@@ -32,6 +32,12 @@ void MoltenCoreDungeonStrategy::InitCombatTriggers(std::list<TriggerNode*>& trig
         NextAction::array(0,
             new NextAction("enable garr fight strategy", 100.0f),
             new NextAction("enable garr warlock cc", 100.0f), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "start ragnaros fight",
+        NextAction::array(0,
+            new NextAction("enable ragnaros fight strategy", 100.0f),
+            new NextAction("enable ragnaros warlock cc", 100.0f), NULL)));
 }
 
 void MoltenCoreDungeonStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
@@ -322,4 +328,70 @@ void GarrFightStrategy::InitCombatMultipliers(std::list<Multiplier*>& multiplier
     // While boss and Firesworn are both up the fight's assignments own the targeting:
     // off-tanks stay on their adds and the raid stays on the boss
     multipliers.push_back(new KeepRaidOnBossMultiplier(ai, 12057, {12099}));
+}
+
+void RagnarosFightStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
+{
+    // Magma Blast: nobody in melee range means random players eat ~6k fire every
+    // 2.5s - pull the main tank back whenever he slipped off (e.g. knocked away)
+    triggers.push_back(new TriggerNode(
+        "ragnaros main tank off boss",
+        NextAction::array(0, new NextAction("attack ragnaros boss", 100.0f), NULL)));
+
+    // Sons of Flame: the raid (off-tanks included) kills them within the 90s
+    // submerge window; the warlocks banish their share
+    triggers.push_back(new TriggerNode(
+        "ragnaros son target",
+        NextAction::array(0, new NextAction("attack ragnaros son", 100.0f), NULL)));
+
+    Player* bot = ai->GetBot();
+    if (ai->IsRanged(bot) || ai->IsHeal(bot))
+    {
+        // Stay out of the boss's reach: while emerged he hurls everyone around
+        // himself into the air (Wrath of Ragnaros) every 25-30s
+        triggers.push_back(new TriggerNode(
+            "ragnaros too close",
+            NextAction::array(0, new NextAction("move away from ragnaros", 100.0f), NULL)));
+    }
+}
+
+void RagnarosFightStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
+{
+    triggers.push_back(new TriggerNode(
+        "end ragnaros fight",
+        NextAction::array(0,
+            new NextAction("disable ragnaros fight strategy", 100.0f),
+            new NextAction("disable ragnaros warlock cc", 100.0f), NULL)));
+}
+
+void RagnarosFightStrategy::InitDeadTriggers(std::list<TriggerNode*>& triggers)
+{
+    triggers.push_back(new TriggerNode(
+        "end ragnaros fight",
+        NextAction::array(0,
+            new NextAction("disable ragnaros fight strategy", 100.0f),
+            new NextAction("disable ragnaros warlock cc", 100.0f), NULL)));
+}
+
+void RagnarosFightStrategy::InitReactionTriggers(std::list<TriggerNode*>& triggers)
+{
+    // Lava Burst scatters fire patches all over the platform
+    triggers.push_back(new TriggerNode(
+        "ragnaros lava burst",
+        NextAction::array(0, new NextAction("move away from hazard", 100.0f), NULL)));
+
+    // The flame dropped on a random mana user hits ~2000 fire damage around itself
+    triggers.push_back(new TriggerNode(
+        "ragnaros flame near",
+        NextAction::array(0, new NextAction("move away from ragnaros flame", 100.0f), NULL)));
+}
+
+void RagnarosFightStrategy::InitCombatMultipliers(std::list<Multiplier*>& multipliers)
+{
+    Player* bot = ai->GetBot();
+    if (ai->IsRanged(bot) || ai->IsHeal(bot))
+    {
+        // The 30y keep-away must not fight the cast-approach of the ranged/healers
+        multipliers.push_back(new PreventMoveAwayFromCreatureOnReachToCastMultiplier(ai));
+    }
 }

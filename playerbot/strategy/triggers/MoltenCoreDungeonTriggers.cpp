@@ -29,6 +29,12 @@ namespace
     constexpr uint32 GARR_ENTRY = 12057;
     constexpr uint32 GARR_FIRESWORN_ENTRY = 12099;
 
+    // Ragnaros, the Sons of Flame of the submerge phase and the Might of Ragnaros flame
+    constexpr uint32 RAGNAROS_ENTRY = 11502;
+    constexpr uint32 RAGNAROS_SON_ENTRY = 12143;
+    constexpr uint32 RAGNAROS_FLAME_ENTRY = 13148;
+    constexpr float RAGNAROS_FLAME_NEAR_RANGE = 12.0f;
+
     // Closest alive creature of the given entry around the bot, or nullptr
     Creature* FindCreatureByEntryAround(Player* bot, uint32 entry, float range)
     {
@@ -224,4 +230,55 @@ bool GarrOffTankTrigger::IsActive()
         return false;
 
     return true;
+}
+
+bool RagnarosSonTargetTrigger::IsActive()
+{
+    if (!bot->IsInWorld() || !sServerFacade.IsAlive(bot))
+        return false;
+
+    // The main tank parks on the boss's spot waiting for him to re-emerge; healers
+    // stay with the healing engine. Everyone else - off-tanks included - kills
+    // the Sons before the 90s window closes
+    if (ai->GetMainTank() == bot || ai->IsHeal(bot))
+        return false;
+
+    // Living Sons of Flame are the kill target while they are up (the warlocks
+    // banish their share; banished ones leave the attackable list)
+    std::list<ObjectGuid> possibleTargets = AI_VALUE(std::list<ObjectGuid>, "possible attack targets");
+    for (const ObjectGuid& guid : possibleTargets)
+    {
+        Unit* unit = ai->GetUnit(guid);
+        if (unit && unit->IsAlive() && unit->GetTypeId() == TYPEID_UNIT && unit->GetEntry() == RAGNAROS_SON_ENTRY)
+            return true;
+    }
+
+    return false;
+}
+
+bool RagnarosMainTankOffBossTrigger::IsActive()
+{
+    if (!bot->IsInWorld() || !sServerFacade.IsAlive(bot))
+        return false;
+
+    if (ai->GetMainTank() != bot)
+        return false;
+
+    // Nothing to hold while the boss is submerged (uninteractible): the Sons
+    // of Flame phase is everyone else's job
+    Creature* ragnaros = FindCreatureByEntryAround(bot, RAGNAROS_ENTRY, BOSS_ADD_TARGET_SEARCH_RANGE);
+    if (!ragnaros || !ragnaros->IsAlive() || ragnaros->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_UNINTERACTIBLE))
+        return false;
+
+    // Only the emerged boss himself counts as "in place": anything else (or no
+    // target at all after the knockback) pulls the main tank back
+    Unit* target = ai->GetUnit(AI_VALUE(ObjectGuid, "current target"));
+    return !(target && target->IsInWorld() && target->IsAlive()
+        && target->GetTypeId() == TYPEID_UNIT && target->GetEntry() == RAGNAROS_ENTRY);
+}
+
+bool RagnarosFlameNearTrigger::IsActive()
+{
+    return bot->IsInWorld() && sServerFacade.IsAlive(bot)
+        && FindCreatureByEntryAround(bot, RAGNAROS_FLAME_ENTRY, RAGNAROS_FLAME_NEAR_RANGE);
 }

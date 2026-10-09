@@ -360,6 +360,14 @@ namespace ai
             creators["garr off tank"] = [](PlayerbotAI* ai) { return new GarrOffTankTrigger(ai); };
             creators["garr main tank off boss"] = [](PlayerbotAI* ai) { return new GarrMainTankOffBossTrigger(ai); };
 
+            creators["start ragnaros fight"] = [](PlayerbotAI* ai) { return new RagnarosStartFightTrigger(ai); };
+            creators["end ragnaros fight"] = [](PlayerbotAI* ai) { return new RagnarosEndFightTrigger(ai); };
+            creators["ragnaros too close"] = [](PlayerbotAI* ai) { return new RagnarosTooCloseTrigger(ai); };
+            creators["ragnaros flame near"] = [](PlayerbotAI* ai) { return new RagnarosFlameNearTrigger(ai); };
+            creators["ragnaros lava burst"] = [](PlayerbotAI* ai) { return new RagnarosLavaBurstTrigger(ai); };
+            creators["ragnaros son target"] = [](PlayerbotAI* ai) { return new RagnarosSonTargetTrigger(ai); };
+            creators["ragnaros main tank off boss"] = [](PlayerbotAI* ai) { return new RagnarosMainTankOffBossTrigger(ai); };
+
             creators["fire protection potion ready"] = [](PlayerbotAI* ai) { return new FireProtectionPotionReadyTrigger(ai); };
 
             creators["mc rune in sight"] = [](PlayerbotAI* ai) { return new MCRuneInSightTrigger(ai); };

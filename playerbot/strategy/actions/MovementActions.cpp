@@ -680,7 +680,19 @@ bool MovementAction::WaitForTransport()
     return false;
 }
 
-TravelPath MovementAction::ResolveMovePath(const WorldPosition& startPosition, const WorldPosition& endPosition, Unit* mover, LastMovement& lastMove)    
+// Arm the failed-path backoff: skip repeating the full navmesh search for
+// AiPlayerbot.PathErrorDelay ms while the destination stays (roughly) the
+// same, and track when the ongoing failure streak began.
+static void notePathFailed(LastMovement& lastMove, WorldPosition const& endPos)
+{
+    time_t now = time(0);
+    if (!lastMove.pathFailedSince)
+        lastMove.pathFailedSince = now;
+    lastMove.nextPathTry = now + std::max((time_t)1, (time_t)(sPlayerbotAIConfig.pathErrorDelay / 1000));
+    lastMove.lastFailedPathTarget = endPos;
+}
+
+TravelPath MovementAction::ResolveMovePath(const WorldPosition& startPosition, const WorldPosition& endPosition, Unit* mover, LastMovement& lastMove)
 {
     float totalDistance = startPosition.distance(endPosition);
     float maxDistChange = totalDistance * 0.1f;
@@ -719,7 +731,10 @@ TravelPath MovementAction::ResolveMovePath(const WorldPosition& startPosition, c
         outMovePath = lastMove.lastPath;
 
     if (outMovePath.empty())
+    {
+        notePathFailed(lastMove, endPosition); // navmesh search produced nothing — likely unreachable
         outMovePath.addPoint(endPosition);
+    }
 
     return outMovePath;
 }
@@ -1121,12 +1136,41 @@ bool MovementAction::MoveTo2(const WorldPosition& endPos, bool idle, bool react,
     
     bool isWalking = false;
 
+    // Throttle retries of failed path searches: a failed search otherwise
+    // re-runs the whole navmesh chain every think tick, which multiplies
+    // across a whole raid once a knockback dropped bots somewhere unreachable.
+    {
+        time_t now = time(0);
+        if (lastMove.nextPathTry > now && lastMove.lastFailedPathTarget.distance(endPos) < sPlayerbotAIConfig.tooCloseDistance)
+        {
+            // Sustained failure: raids disable every generic stuck recovery,
+            // so after 5s of not being able to path at all, teleport the bot
+            // back to the (snapped) destination so it can keep playing.
+            // Never inside battlegrounds - a teleport would warp pvp.
+            if (!bot->InBattleGround() && lastMove.pathFailedSince && lastMove.pathFailedSince + 5 <= now)
+            {
+                WorldPosition rescue = endPos;
+                if (rescue.getMapId() == bot->GetMapId() && rescue.ClosestCorrectPoint(15.0f, 10.0f, bot->GetInstanceId()))
+                {
+                    sLog.outDetail("%s: no path to destination since %u — teleporting back.", bot->GetName(), (uint32)lastMove.pathFailedSince);
+                    lastMove.clear();
+                    return bot->TeleportTo(rescue.getMapId(), rescue.getX(), rescue.getY(), rescue.getZ(), startPos.getAngleTo(rescue));
+                }
+            }
+
+            return false;
+        }
+    }
+
     TravelPath movePath = ResolveMovePath(startPos, endPos, mover, lastMove);
 
     lastMove.setPath(movePath);
 
     if (movePath.empty())
+    {
+        notePathFailed(lastMove, endPos);
         return false;
+    }
 
      
     if (!bot->GetTransport())
@@ -1134,10 +1178,13 @@ bool MovementAction::MoveTo2(const WorldPosition& endPos, bool idle, bool react,
 
     if (movePath.empty())
     {
+        notePathFailed(lastMove, endPos);
         lastMove.setPath(movePath);
-        return true; // Path collapsed — will rebuild next tick.
+        return true; // Path collapsed — will retry after the path error delay.
     }
 
+    lastMove.nextPathTry = 0;
+    lastMove.pathFailedSince = 0;
 
     TravelNodePathType pathType = TravelNodePathType::none;
     uint32 entry = 0;
@@ -1171,6 +1218,7 @@ bool MovementAction::MoveTo2(const WorldPosition& endPos, bool idle, bool react,
 
     if (movePath.empty())
     {
+        notePathFailed(lastMove, endPos);
         return false;
     }
 

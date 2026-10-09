@@ -803,6 +803,12 @@ AiPlayerbot.GlobalCooldown = 1500
 # Delay between two bot actions (default 100)
 AiPlayerbot.ReactDelay = 100
 
+# Retry delay (ms) after a failed path search to (roughly) the same destination.
+# A collapsed path otherwise re-runs the whole navmesh search chain every think
+# tick; when a knockback drops bots somewhere unreachable that stalls the world
+# thread across a whole raid. Set to 1 to effectively disable the backoff.
+#AiPlayerbot.PathErrorDelay = 1000
+
 # Inactivity delay
 AiPlayerbot.PassiveDelay = 10000
 

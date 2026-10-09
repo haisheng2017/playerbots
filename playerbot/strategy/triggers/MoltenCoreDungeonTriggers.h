@@ -215,6 +215,64 @@ namespace ai
         GarrMainTankOffBossTrigger(PlayerbotAI* ai) : MainTankOffBossTrigger(ai, "garr main tank off boss", 12057, {12099}) {}
     };
 
+    class RagnarosStartFightTrigger : public StartBossFightTrigger
+    {
+    public:
+        RagnarosStartFightTrigger(PlayerbotAI* ai) : StartBossFightTrigger(ai, "start ragnaros fight", "ragnaros", 11502) {}
+    };
+
+    class RagnarosEndFightTrigger : public EndBossFightTrigger
+    {
+    public:
+        RagnarosEndFightTrigger(PlayerbotAI* ai) : EndBossFightTrigger(ai, "end ragnaros fight", "ragnaros", 11502) {}
+    };
+
+    // Ranged/healers stay out of the boss's reach: while emerged he hurls everyone
+    // around himself into the air (Wrath of Ragnaros) and the flame he drops on
+    // random mana users pulses heavy fire damage
+    class RagnarosTooCloseTrigger : public CloseToCreatureTrigger
+    {
+    public:
+        RagnarosTooCloseTrigger(PlayerbotAI* ai) : CloseToCreatureTrigger(ai, "ragnaros too close", 11502, 29.0f) {}
+    };
+
+    // The flame Ragnaros summons on a random mana user (Might of Ragnaros) hits
+    // ~2000 fire damage around itself: run away from it
+    class RagnarosFlameNearTrigger : public Trigger
+    {
+    public:
+        RagnarosFlameNearTrigger(PlayerbotAI* ai) : Trigger(ai, "ragnaros flame near", 1) {}
+        bool IsActive() override;
+    };
+
+    // Lava Burst scatters fire patches (GO 178088) all over the platform
+    class RagnarosLavaBurstTrigger : public CloseToGameObjectHazardTrigger
+    {
+    public:
+        RagnarosLavaBurstTrigger(PlayerbotAI* ai) : CloseToGameObjectHazardTrigger(ai, "ragnaros lava burst", 178088, 6.0f, 30) {}
+    };
+
+    // Ragnaros submerges at 3:00 and spawns 8 Sons of Flame; they must die within
+    // 90s (he re-emerges regardless and they keep fighting alongside him). While
+    // they are up the whole raid switches to them - submerged Ragnaros cannot be
+    // attacked, so the generic assist would switch on its own anyway
+    class RagnarosSonTargetTrigger : public Trigger
+    {
+    public:
+        RagnarosSonTargetTrigger(PlayerbotAI* ai) : Trigger(ai, "ragnaros son target", 1) {}
+        bool IsActive() override;
+    };
+
+    // Ragnaros is rooted but nukes random players when nobody stands in melee:
+    // pull the main tank back onto him whenever he slipped off (Wrath of Ragnaros
+    // knocks everyone around the boss into the air)
+    class RagnarosMainTankOffBossTrigger : public Trigger
+    {
+    public:
+        RagnarosMainTankOffBossTrigger(PlayerbotAI* ai) : Trigger(ai, "ragnaros main tank off boss", 1) {}
+        bool IsActive() override;
+    };
+
     class FireProtectionPotionReadyTrigger : public ItemBuffReadyTrigger
     {
     public:
