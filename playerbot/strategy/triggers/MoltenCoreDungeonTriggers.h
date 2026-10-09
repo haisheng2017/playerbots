@@ -206,7 +206,9 @@ namespace ai
     class MCQuintessenceMissingTrigger : public Trigger
     {
     public:
-        MCQuintessenceMissingTrigger(PlayerbotAI* ai) : Trigger(ai, "mc quintessence missing", 2) {}
+        // Check interval of 60 s throttles the refill that would otherwise re-arm the
+        // douse loop every tick next to an already-doused rune (the GO never goes away)
+        MCQuintessenceMissingTrigger(PlayerbotAI* ai) : Trigger(ai, "mc quintessence missing", 60) {}
         bool IsActive() override;
     };
 }
