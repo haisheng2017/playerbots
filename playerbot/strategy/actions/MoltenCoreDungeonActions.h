@@ -338,7 +338,10 @@ namespace ai
     class MoveToMCRuneAction : public MoveToAction
     {
     public:
-        MoveToMCRuneAction(PlayerbotAI* ai) : MoveToAction(ai, "move to mc rune") { qualifier = "entry filter::{gos in sight,mc runes}"; }
+        MoveToMCRuneAction(PlayerbotAI* ai) : MoveToAction(ai, "move to mc rune")
+        {
+            qualifier = "mc dousable rune filter::go usable filter::go trapped filter::entry filter::{gos in sight,mc runes}";
+        }
     };
 
     class DouseMCRuneActionBase : public UseItemIdAction
@@ -346,21 +349,36 @@ namespace ai
     public:
         DouseMCRuneActionBase(PlayerbotAI* ai, std::string name) : UseItemIdAction(ai, name) {}
         bool Execute(Event& event) override;
+        bool isUseful() override;
 
     protected:
-        std::string GetTargetRuneName();
+        GameObject* GetTargetRune();
     };
 
     class DouseMCRuneActionAqual : public DouseMCRuneActionBase
     {
     public:
-        DouseMCRuneActionAqual(PlayerbotAI* ai) : DouseMCRuneActionBase(ai, "douse mc rune aqual") { qualifier = "{17333,entry filter::{gos close,mc runes}}"; }
+        DouseMCRuneActionAqual(PlayerbotAI* ai) : DouseMCRuneActionBase(ai, "douse mc rune aqual")
+        {
+            qualifier = "{17333,mc dousable rune filter::go usable filter::entry filter::{gos close,mc runes}}";
+        }
     };
 
     class DouseMCRuneActionEternal : public DouseMCRuneActionBase
     {
     public:
-        DouseMCRuneActionEternal(PlayerbotAI* ai) : DouseMCRuneActionBase(ai, "douse mc rune eternal") { qualifier = "{22754,entry filter::{gos close,mc runes}}"; }
+        DouseMCRuneActionEternal(PlayerbotAI* ai) : DouseMCRuneActionBase(ai, "douse mc rune eternal")
+        {
+            qualifier = "{22754,mc dousable rune filter::go usable filter::entry filter::{gos close,mc runes}}";
+        }
+    };
+
+    // Says the douse line only after this bot's cast actually counted.
+    class SayMCRuneDousedAction : public Action
+    {
+    public:
+        SayMCRuneDousedAction(PlayerbotAI* ai) : Action(ai, "say mc rune doused") {}
+        bool Execute(Event& event) override;
     };
 
     class RefreshMCQuintessenceAction : public Action

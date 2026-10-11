@@ -441,6 +441,7 @@ namespace ai
             creators["move to mc rune"] = [](PlayerbotAI* ai) { return new MoveToMCRuneAction(ai); };
             creators["douse mc rune aqual"] = [](PlayerbotAI* ai) { return new DouseMCRuneActionAqual(ai); };
             creators["douse mc rune eternal"] = [](PlayerbotAI* ai) { return new DouseMCRuneActionEternal(ai); };
+            creators["say mc rune doused"] = [](PlayerbotAI* ai) { return new SayMCRuneDousedAction(ai); };
             creators["refresh mc quintessence"] = [](PlayerbotAI* ai) { return new RefreshMCQuintessenceAction(ai); };
 
             creators["move to suppression device"] = [](PlayerbotAI* ai) { return new MoveToSuppressionDeviceAction(ai); };

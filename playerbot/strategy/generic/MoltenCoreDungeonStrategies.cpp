@@ -99,6 +99,10 @@ void MoltenCoreDungeonStrategy::InitCombatTriggers(std::list<TriggerNode*>& trig
         NextAction::array(0,
             new NextAction("enable ragnaros fight strategy", 100.0f),
             new NextAction("enable ragnaros warlock cc", 100.0f), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "mc rune doused",
+        NextAction::array(0, new NextAction("say mc rune doused", 20.0f), NULL)));
 }
 
 void MoltenCoreDungeonStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
@@ -131,6 +135,10 @@ void MoltenCoreDungeonStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& t
         NextAction::array(0,
             new NextAction("douse mc rune eternal", 2.0f),
             new NextAction("douse mc rune aqual", 1.0f), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "mc rune doused",
+        NextAction::array(0, new NextAction("say mc rune doused", 20.0f), NULL)));
 
     triggers.push_back(new TriggerNode(
         "fire protection potion ready",

@@ -450,6 +450,7 @@ namespace ai
             creators["range filter"] = [](PlayerbotAI* ai) { return new RangeFilterValue(ai); };
             creators["go usable filter"] = [](PlayerbotAI* ai) { return new GoUsableFilterValue(ai); };
             creators["go trapped filter"] = [](PlayerbotAI* ai) { return new GoTrappedFilterValue(ai); };
+            creators["mc dousable rune filter"] = [](PlayerbotAI* ai) { return new McDousableRuneFilterValue(ai); };
             creators["gos in sight"] = [](PlayerbotAI* ai) { return new GosInSightValue(ai); };
             creators["gos close"] = [](PlayerbotAI* ai) { return new GoSCloseValue(ai); };
             creators["has object"] = [](PlayerbotAI* ai) { return new HasObjectValue(ai); };

@@ -314,8 +314,8 @@ namespace ai
         {
             qualifier = "and::{"
                 "or::{action possible::use id::17333,action possible::use id::22754},"
-                "has object::go usable filter::go trapped filter::entry filter::{gos in sight,mc runes},"
-                "not::has object::entry filter::{gos close,mc runes}"
+                "has object::mc dousable rune filter::go usable filter::go trapped filter::entry filter::{gos in sight,mc runes},"
+                "not::has object::mc dousable rune filter::go usable filter::entry filter::{gos close,mc runes}"
                 "}";
         }
     };
@@ -323,7 +323,18 @@ namespace ai
     class MCRuneCloseTrigger : public ValueTrigger
     {
     public:
-        MCRuneCloseTrigger(PlayerbotAI* ai) : ValueTrigger(ai, "mc rune close", 1) { qualifier = "has object::go usable filter::entry filter::{gos close,mc runes}"; }
+        MCRuneCloseTrigger(PlayerbotAI* ai) : ValueTrigger(ai, "mc rune close", 1)
+        {
+            qualifier = "has object::mc dousable rune filter::go usable filter::entry filter::{gos close,mc runes}";
+        }
+    };
+
+    // Fires once the douse cast is no longer in progress. The action decides whether it landed.
+    class MCRuneDousedTrigger : public Trigger
+    {
+    public:
+        MCRuneDousedTrigger(PlayerbotAI* ai) : Trigger(ai, "mc rune doused", 1) {}
+        bool IsActive() override;
     };
 
     class MCQuintessenceMissingTrigger : public Trigger

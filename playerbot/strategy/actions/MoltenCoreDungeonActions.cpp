@@ -2,6 +2,7 @@
 #include "playerbot/playerbot.h"
 #include "MoltenCoreDungeonActions.h"
 #include "playerbot/strategy/values/PositionValue.h"
+#include "playerbot/strategy/values/GuidPositionValues.h"
 #include "playerbot/strategy/AiObjectContext.h"
 #include "playerbot/PlayerbotAI.h"
 #include "playerbot/ServerFacade.h"
@@ -283,44 +284,106 @@ bool RefreshMCQuintessenceAction::Execute(Event& event)
     return true;
 }
 
-std::string DouseMCRuneActionBase::GetTargetRuneName()
+namespace
 {
-    // Parse the qualifier the same way UseItemIdAction::Execute does, to get the target rune name
+    constexpr uint32 MC_AQUAL_QUINTESSENCE_ITEM = 17333;
+    constexpr uint32 MC_ETERNAL_QUINTESSENCE_ITEM = 22754;
+
+    void ClearPendingMCDouse(PlayerbotAI* ai)
+    {
+        AiObjectContext* context = ai->GetAiObjectContext();
+        SET_AI_VALUE2(int32, "manual int", "mc douse pending rune", 0);
+        SET_AI_VALUE2(int32, "manual int", "mc douse pending item", 0);
+        SET_AI_VALUE2(int32, "manual int", "mc douse pending count", 0);
+        SET_AI_VALUE2(std::string, "manual string", "mc douse pending name", "");
+    }
+}
+
+GameObject* DouseMCRuneActionBase::GetTargetRune()
+{
+    // Parse the qualifier the same way UseItemIdAction::Execute does
     std::vector<std::string> params = getMultiQualifiers(getQualifier(), ",");
     if (params.size() < 2)
-        return "";
+        return nullptr;
 
     std::list<GuidPosition> guidPs = AI_VALUE(std::list<GuidPosition>, params[1]);
     if (guidPs.empty())
-        return "";
+        return nullptr;
 
     GuidPosition guidP = *guidPs.begin();
     if (!guidP.IsGameObject())
-        return "";
+        return nullptr;
 
-    GameObject* go = guidP.GetGameObject(bot->GetInstanceId());
-    if (!go || !go->GetGOInfo())
-        return "";
+    return guidP.GetGameObject(bot->GetInstanceId());
+}
 
-    return go->GetGOInfo()->name;
+bool DouseMCRuneActionBase::isUseful()
+{
+    if (!UseItemIdAction::isUseful())
+        return false;
+
+    GameObject* go = GetTargetRune();
+    if (!go)
+        return false;
+
+    return MoltenCoreRuneEncounterState(bot, go->GetEntry()) == MC_RUNE_BOSS_DEAD;
 }
 
 bool DouseMCRuneActionBase::Execute(Event& event)
 {
-    // The rune GO leaves the usable list once doused, so record the target rune name first
-    std::string runeName = GetTargetRuneName();
+    GameObject* go = GetTargetRune();
+    if (!go || !go->GetGOInfo())
+        return false;
 
-    bool result = UseItemIdAction::Execute(event);
+    // The rune script only counts a use after the boss is dead. Using it earlier still
+    // flags the GO in-use, and the cast itself can be cancelled after it has started.
+    if (MoltenCoreRuneEncounterState(bot, go->GetEntry()) != MC_RUNE_BOSS_DEAD)
+        return false;
 
-    if (result)
-    {
-        if (runeName.empty())
-            ai->Say("I have doused the fire.");
-        else
-            ai->Say("I have doused the fire [" + runeName + "]");
-    }
+    uint32 itemId = GetItemId();
+    uint32 countBefore = bot->GetItemCount(itemId, false);
+    std::string runeName = go->GetGOInfo()->name;
+    uint32 runeEntry = go->GetEntry();
 
-    return result;
+    if (!UseItemIdAction::Execute(event))
+        return false;
+
+    // The line is said later, once this cast has actually counted.
+    SET_AI_VALUE2(int32, "manual int", "mc douse pending rune", int32(runeEntry));
+    SET_AI_VALUE2(int32, "manual int", "mc douse pending item", int32(itemId));
+    SET_AI_VALUE2(int32, "manual int", "mc douse pending count", int32(countBefore));
+    SET_AI_VALUE2(std::string, "manual string", "mc douse pending name", runeName);
+    return true;
+}
+
+bool SayMCRuneDousedAction::Execute(Event& /*event*/)
+{
+    int32 runeEntry = AI_VALUE2(int32, "manual int", "mc douse pending rune");
+    int32 itemId = AI_VALUE2(int32, "manual int", "mc douse pending item");
+    int32 countBefore = AI_VALUE2(int32, "manual int", "mc douse pending count");
+    std::string runeName = AI_VALUE2(std::string, "manual string", "mc douse pending name");
+    ClearPendingMCDouse(ai);
+
+    if (runeEntry <= 0 || MoltenCoreRuneEncounterState(bot, uint32(runeEntry)) != MC_RUNE_DOUSED)
+        return false;
+
+    // Aqual is consumed when the spell lands. Eternal is not, but it takes the item cooldown.
+    // A cast that was interrupted, or that lost the race to another bot, does neither.
+    bool landed = false;
+    if (uint32(itemId) == MC_AQUAL_QUINTESSENCE_ITEM)
+        landed = int32(bot->GetItemCount(MC_AQUAL_QUINTESSENCE_ITEM, false)) < countBefore;
+    else if (uint32(itemId) == MC_ETERNAL_QUINTESSENCE_ITEM)
+        landed = !sServerFacade.IsSpellReady(bot, MC_DOUSE_SPELL, MC_ETERNAL_QUINTESSENCE_ITEM);
+
+    if (!landed)
+        return false;
+
+    if (runeName.empty())
+        ai->Say("I have doused the fire.");
+    else
+        ai->Say("I have doused the fire [" + runeName + "]");
+
+    return true;
 }
 
 bool BaronGeddonLivingBombEscapeAction::isPossible()

@@ -134,4 +134,23 @@ namespace ai
 
         virtual bool Calculate() override { return !AI_VALUE(std::list<GuidPosition>, getQualifier()).empty(); }
     };
+
+    // instance_molten_core encounter indexes. DONE means the boss is dead and the rune
+    // still needs dousing; SPECIAL means a quintessence use was counted.
+    constexpr uint32 MC_RUNE_BOSS_DEAD = 3;
+    constexpr uint32 MC_RUNE_DOUSED = 4;
+    constexpr uint32 MC_DOUSE_SPELL = 21358;
+
+    // Rune GO entry -> encounter index, or -1 when the entry is not a Molten Core rune.
+    int32 MoltenCoreRuneEncounterType(uint32 goEntry);
+    uint32 MoltenCoreRuneEncounterState(Player* bot, uint32 goEntry);
+
+    // Drops runes whose boss is still alive, and runes already counted as doused.
+    class McDousableRuneFilterValue : public GuidPositionListCalculatedValue, public Qualified
+    {
+    public:
+        McDousableRuneFilterValue(PlayerbotAI* ai, std::string name = "mc dousable rune filter") : GuidPositionListCalculatedValue(ai, name, 1), Qualified() {}
+
+        virtual std::list<GuidPosition> Calculate() override;
+    };
 }

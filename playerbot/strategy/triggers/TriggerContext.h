@@ -375,6 +375,7 @@ namespace ai
 
             creators["mc rune in sight"] = [](PlayerbotAI* ai) { return new MCRuneInSightTrigger(ai); };
             creators["mc rune close"] = [](PlayerbotAI* ai) { return new MCRuneCloseTrigger(ai); };
+            creators["mc rune doused"] = [](PlayerbotAI* ai) { return new MCRuneDousedTrigger(ai); };
             creators["mc quintessence missing"] = [](PlayerbotAI* ai) { return new MCQuintessenceMissingTrigger(ai); };
 
             creators["suppression device need stealth"] = [](PlayerbotAI* ai) { return new SuppressionDeviceNeedStealthTrigger(ai); };

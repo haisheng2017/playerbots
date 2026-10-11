@@ -4,6 +4,7 @@
 #include "playerbot/strategy/actions/MoltenCoreDungeonActions.h"
 #include "playerbot/ServerFacade.h"
 #include "playerbot/strategy/AiObjectContext.h"
+#include "playerbot/strategy/values/GuidPositionValues.h"
 #include "Grids/GridNotifiers.h"
 #include "Grids/GridNotifiersImpl.h"
 #include "Grids/CellImpl.h"
@@ -332,4 +333,14 @@ bool RagnarosFlameNearTrigger::IsActive()
 {
     return bot->IsInWorld() && sServerFacade.IsAlive(bot)
         && FindCreatureByEntryAround(bot, RAGNAROS_FLAME_ENTRY, RAGNAROS_FLAME_NEAR_RANGE);
+}
+
+bool MCRuneDousedTrigger::IsActive()
+{
+    if (AI_VALUE2(int32, "manual int", "mc douse pending rune") <= 0)
+        return false;
+
+    // The quintessence spell is still winding up. Wait until it lands or is cancelled.
+    Spell* spell = bot->GetCurrentSpell(CURRENT_GENERIC_SPELL);
+    return !(spell && spell->m_spellInfo && spell->m_spellInfo->Id == MC_DOUSE_SPELL);
 }
