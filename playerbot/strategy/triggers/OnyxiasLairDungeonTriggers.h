@@ -51,7 +51,7 @@ namespace ai
     class OnyxiaPositionTrigger : public Trigger
     {
     public:
-        OnyxiaPositionTrigger(PlayerbotAI* ai) : Trigger(ai, "onyxia move to position", 1) {}
+        OnyxiaPositionTrigger(PlayerbotAI* ai) : Trigger(ai, "onyxia move to position", 2) {}
         bool IsActive() override;
     };
 
@@ -93,7 +93,7 @@ namespace ai
     class OnyxiaWhelpLureTrigger : public Trigger
     {
     public:
-        OnyxiaWhelpLureTrigger(PlayerbotAI* ai) : Trigger(ai, "onyxia whelp lure", 1) {}
+        OnyxiaWhelpLureTrigger(PlayerbotAI* ai) : Trigger(ai, "onyxia whelp lure", 2) {}
         bool IsActive() override;
     };
 }

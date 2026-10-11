@@ -458,27 +458,74 @@ namespace
         return false;
     }
 
+    struct WhelpScan
+    {
+        uint32 botLow;
+        uint32 stamp;
+        ObjectGuid guids[40];
+        uint8 count;
+        bool used;
+    };
+
+    WhelpScan whelpScans[48] = {};
+
     void CollectWhelps(Player* bot, std::list<Unit*>& out)
     {
+        uint32 now = WorldTimer::getMSTime();
+        uint32 botLow = bot->GetObjectGuid().GetCounter();
+        WhelpScan* slot = nullptr;
+        for (WhelpScan& scan : whelpScans)
+        {
+            if (scan.used && scan.botLow == botLow)
+            {
+                slot = &scan;
+                break;
+            }
+            if (!slot && !scan.used)
+                slot = &scan;
+        }
+        if (!slot)
+            slot = &whelpScans[botLow % 48];
+
+        if (slot->used && slot->botLow == botLow && WorldTimer::getMSTimeDiff(slot->stamp, now) < 1000)
+        {
+            Map* map = bot->GetMap();
+            for (uint8 i = 0; i < slot->count; ++i)
+            {
+                Unit* unit = map ? map->GetUnit(slot->guids[i]) : nullptr;
+                if (unit && unit->IsAlive())
+                    out.push_back(unit);
+            }
+            return;
+        }
+
         std::list<Unit*> units;
         MaNGOS::AllCreaturesOfEntryInRangeCheck check(bot, NPC_ONYXIA_WHELP, 100.0f);
         MaNGOS::UnitListSearcher<MaNGOS::AllCreaturesOfEntryInRangeCheck> searcher(units, check);
         Cell::VisitAllObjects(bot, searcher, 100.0f);
 
+        slot->used = true;
+        slot->botLow = botLow;
+        slot->stamp = now;
+        slot->count = 0;
         for (Unit* unit : units)
         {
-            if (unit && unit->IsAlive())
-                out.push_back(unit);
+            if (!unit || !unit->IsAlive())
+                continue;
+
+            out.push_back(unit);
+            if (slot->count < 40)
+                slot->guids[slot->count++] = unit->GetObjectGuid();
         }
     }
 
-    Unit* NearestWhelp(Player* bot, bool insidePit)
+    Unit* NearestWhelp(Player* bot, bool insidePit, float maxRange = 100.0f)
     {
         std::list<Unit*> whelps;
         CollectWhelps(bot, whelps);
 
         Unit* closest = nullptr;
-        float best = 100.0f;
+        float best = maxRange;
         for (Unit* whelp : whelps)
         {
             bool inPit = InWhelpPit(whelp->GetPositionX(), whelp->GetPositionY());
@@ -501,20 +548,27 @@ namespace
         return !IsOnyxiaMainTank(ai) && !ai->IsHeal(bot) && !ai->IsRanged(bot);
     }
 
-    bool ShouldLureWhelp(PlayerbotAI* ai)
+    // Two bots per pit, chosen by guid. Everyone else keeps a floor slot.
+    bool HoldsOnyxiaPit(PlayerbotAI* ai)
     {
-        Player* bot = ai->GetBot();
         if (!ClearsWhelps(ai))
             return false;
 
+        return (ai->GetBot()->GetObjectGuid().GetCounter() % 8) < 2;
+    }
+
+    bool ShouldLureWhelp(PlayerbotAI* ai)
+    {
+        if (!HoldsOnyxiaPit(ai))
+            return false;
+
+        Player* bot = ai->GetBot();
         Unit* onyxia = FindOnyxia(bot);
         if (!onyxia || GetOnyxiaPhase(onyxia) != 2)
             return false;
 
-        if (NearestWhelp(bot, false))
-            return false;
-
-        return NearestWhelp(bot, true) != nullptr;
+        // A whelp that has left the pit is an attack target, not a reason to change mouths.
+        return FindOnyxiaWhelpInRoom(bot) == nullptr;
     }
 
     void StopPetAttack(Player* bot)
@@ -531,39 +585,250 @@ namespace
         bot->GetSession()->HandlePetAction(data);
     }
 
-    bool PickRangedPhase2Point(Unit* onyxia, uint32 slot, float attackRange, float& x, float& y)
+    // East and west wedges. North and south are the whelp pits, and the four breath lines
+    // run through the middle, so these four bearings stay on the floor.
+    const float phase2Angles[4] =
     {
-        float stand = attackRange - 10.0f + (slot % 3) * 2.0f;
-        if (stand < 15.0f)
-            stand = 15.0f;
-        if (stand > attackRange - 5.0f)
-            stand = attackRange - 5.0f;
+        22.5f * M_PI_F / 180.0f,
+        157.5f * M_PI_F / 180.0f,
+        202.5f * M_PI_F / 180.0f,
+        337.5f * M_PI_F / 180.0f,
+    };
 
-        float base = (slot % 8) * (M_PI_F / 4.0f);
-        float distances[] = { stand, 14.0f };
-        for (float distance : distances)
+    void Phase2SpreadPoint(uint32 slot, float radius, float& x, float& y)
+    {
+        float angle = phase2Angles[slot % 4];
+        int jitter = (int)((slot / 4) % 5) - 2;
+        angle += jitter * (4.0f * M_PI_F / 180.0f);
+        x = LAIR_CENTER_X + cos(angle) * radius;
+        y = LAIR_CENTER_Y + sin(angle) * radius;
+    }
+
+    struct BreathDodge
+    {
+        uint32 botLow;
+        uint32 instanceId;
+        float x1, y1, x2, y2;
+        float x, y, z;
+        bool used;
+    };
+
+    BreathDodge breathDodges[64] = {};
+
+    BreathDodge* BreathDodgeSlot(Player* bot, bool create)
+    {
+        uint32 botLow = bot->GetObjectGuid().GetCounter();
+        uint32 instanceId = bot->GetInstanceId();
+        BreathDodge* freeSlot = nullptr;
+        for (BreathDodge& dodge : breathDodges)
         {
-            for (int i = 0; i < 8; ++i)
-            {
-                float angle = base + i * (M_PI_F / 4.0f);
-                float tx = onyxia->GetPositionX() + cos(angle) * distance;
-                float ty = onyxia->GetPositionY() + sin(angle) * distance;
-                if (InWhelpPit(tx, ty))
-                    continue;
+            if (dodge.used && dodge.botLow == botLow && dodge.instanceId == instanceId)
+                return &dodge;
+            if (!freeSlot && !dodge.used)
+                freeSlot = &dodge;
+        }
 
-                x = tx;
-                y = ty;
+        if (!create)
+            return nullptr;
+
+        if (!freeSlot)
+            freeSlot = &breathDodges[botLow % 64];
+
+        freeSlot->used = true;
+        freeSlot->botLow = botLow;
+        freeSlot->instanceId = instanceId;
+        return freeSlot;
+    }
+
+    void ClearBreathDodge(Player* bot)
+    {
+        if (BreathDodge* dodge = BreathDodgeSlot(bot, false))
+            dodge->used = false;
+    }
+
+    bool ReuseBreathDodge(Player* bot, float x1, float y1, float x2, float y2, float& x, float& y, float& z)
+    {
+        BreathDodge* dodge = BreathDodgeSlot(bot, false);
+        if (!dodge)
+            return false;
+
+        if (Distance2d(dodge->x1, dodge->y1, x1, y1) > 1.0f || Distance2d(dodge->x2, dodge->y2, x2, y2) > 1.0f)
+            return false;
+
+        // Arrived, and this line is still dangerous. Take one more step instead of chasing a moving point.
+        if (Distance2d(bot->GetPositionX(), bot->GetPositionY(), dodge->x, dodge->y) <= 3.0f)
+            return false;
+
+        x = dodge->x;
+        y = dodge->y;
+        z = dodge->z;
+        return true;
+    }
+
+    void StoreBreathDodge(Player* bot, float x1, float y1, float x2, float y2, float x, float y, float z)
+    {
+        BreathDodge* dodge = BreathDodgeSlot(bot, true);
+        dodge->x1 = x1;
+        dodge->y1 = y1;
+        dodge->x2 = x2;
+        dodge->y2 = y2;
+        dodge->x = x;
+        dodge->y = y;
+        dodge->z = z;
+    }
+
+    struct MoveOrder
+    {
+        uint32 botLow;
+        uint32 stamp;
+        float x, y, z;
+        bool used;
+    };
+
+    MoveOrder breathOrders[64] = {};
+
+    bool BreathMoveUnderway(Player* bot, float x, float y, float z)
+    {
+        uint32 botLow = bot->GetObjectGuid().GetCounter();
+        for (const MoveOrder& order : breathOrders)
+        {
+            if (!order.used || order.botLow != botLow)
+                continue;
+
+            if (Distance2d(order.x, order.y, x, y) >= 2.5f || fabs(order.z - z) >= 4.0f)
+                return false;
+
+            // Already on the safe point. A new order is needed only if this line is still dangerous.
+            if (Distance2d(bot->GetPositionX(), bot->GetPositionY(), order.x, order.y) <= 3.0f)
+                return false;
+
+            if (sServerFacade.isMoving(bot))
                 return true;
-            }
+
+            // Movement flags lag a moment behind MoveTo. Don't cancel and repath in that gap.
+            return WorldTimer::getMSTimeDiff(order.stamp, WorldTimer::getMSTime()) < 800;
         }
         return false;
+    }
+
+    void RememberBreathMove(Player* bot, float x, float y, float z)
+    {
+        uint32 botLow = bot->GetObjectGuid().GetCounter();
+        MoveOrder* slot = nullptr;
+        for (MoveOrder& order : breathOrders)
+        {
+            if (order.used && order.botLow == botLow)
+            {
+                slot = &order;
+                break;
+            }
+            if (!slot && !order.used)
+                slot = &order;
+        }
+        if (!slot)
+            slot = &breathOrders[botLow % 64];
+
+        slot->used = true;
+        slot->botLow = botLow;
+        slot->stamp = WorldTimer::getMSTime();
+        slot->x = x;
+        slot->y = y;
+        slot->z = z;
+    }
+
+    struct Phase3DpsHold
+    {
+        uint32 instanceId;
+        uint32 started;
+        bool used;
+    };
+
+    Phase3DpsHold phase3DpsHolds[8] = {};
+
+    Phase3DpsHold* Phase3DpsHoldSlot(uint32 instanceId, bool create)
+    {
+        Phase3DpsHold* freeSlot = nullptr;
+        for (Phase3DpsHold& hold : phase3DpsHolds)
+        {
+            if (hold.used && hold.instanceId == instanceId)
+                return &hold;
+            if (!freeSlot && !hold.used)
+                freeSlot = &hold;
+        }
+
+        if (!create)
+            return nullptr;
+
+        if (!freeSlot)
+            freeSlot = &phase3DpsHolds[instanceId % 8];
+
+        freeSlot->used = true;
+        freeSlot->instanceId = instanceId;
+        freeSlot->started = WorldTimer::getMSTime();
+        return freeSlot;
+    }
+
+    void ClearPhase3DpsHold(uint32 instanceId)
+    {
+        if (Phase3DpsHold* hold = Phase3DpsHoldSlot(instanceId, false))
+            hold->used = false;
+    }
+
+    // Shared by the raid. The first DPS to see her land starts the 20 seconds.
+    bool Phase3DpsStopped(uint32 instanceId)
+    {
+        Phase3DpsHold* hold = Phase3DpsHoldSlot(instanceId, true);
+        return WorldTimer::getMSTimeDiff(hold->started, WorldTimer::getMSTime()) < 20000;
     }
 
 }
 
 Unit* ai::FindOnyxia(Player* bot)
 {
-    return FindCreature(bot, NPC_ONYXIA, 200.0f);
+    if (!bot || !bot->GetMap())
+        return nullptr;
+
+    struct OnyxiaScan
+    {
+        uint32 instanceId;
+        uint32 stamp;
+        ObjectGuid guid;
+        bool searched;
+    };
+    static OnyxiaScan scans[8] = {};
+
+    uint32 now = WorldTimer::getMSTime();
+    uint32 instanceId = bot->GetInstanceId();
+    OnyxiaScan* slot = nullptr;
+    for (OnyxiaScan& scan : scans)
+    {
+        if (scan.searched && scan.instanceId == instanceId)
+        {
+            slot = &scan;
+            break;
+        }
+        if (!slot && !scan.searched)
+            slot = &scan;
+    }
+    if (!slot)
+        slot = &scans[instanceId % 8];
+
+    if (slot->searched && slot->instanceId == instanceId && WorldTimer::getMSTimeDiff(slot->stamp, now) < 1000)
+    {
+        if (slot->guid.IsEmpty())
+            return nullptr;
+
+        Unit* unit = bot->GetMap()->GetUnit(slot->guid);
+        if (unit && unit->IsAlive())
+            return unit;
+    }
+
+    Unit* found = FindCreature(bot, NPC_ONYXIA, 200.0f);
+    slot->searched = true;
+    slot->instanceId = instanceId;
+    slot->stamp = now;
+    slot->guid = found ? found->GetObjectGuid() : ObjectGuid();
+    return found;
 }
 
 Unit* ai::FindNearestOnyxiaWhelp(Player* bot)
@@ -597,7 +862,9 @@ bool ai::IsOnyxiaMainTank(PlayerbotAI* ai)
 
 Unit* ai::FindOnyxiaWhelpInRoom(Player* bot)
 {
-    return NearestWhelp(bot, false);
+    // Only whelps that have walked out near this bot. Chasing one across the crater
+    // pulls melee off their slots and repaths the raid.
+    return NearestWhelp(bot, false, 40.0f);
 }
 
 bool ai::IsInsideOnyxiaWhelpPit(float x, float y)
@@ -622,6 +889,7 @@ bool ai::ShouldAttackOnyxiaWhelp(PlayerbotAI* ai)
 bool ai::ShouldHoldOnyxiaDps(PlayerbotAI* ai)
 {
     Player* bot = ai->GetBot();
+    // Main tank and off tanks keep attacking.
     if (ai->IsTank(bot, true))
         return false;
 
@@ -630,7 +898,11 @@ bool ai::ShouldHoldOnyxiaDps(PlayerbotAI* ai)
         return false;
 
     int phase = GetOnyxiaPhase(onyxia);
-    if (phase != 1 && phase != 3)
+    if (phase == 3)
+        return Phase3DpsStopped(onyxia->GetInstanceId());
+
+    ClearPhase3DpsHold(onyxia->GetInstanceId());
+    if (phase != 1)
         return false;
 
     Unit* victim = onyxia->GetVictim();
@@ -668,7 +940,10 @@ bool ai::GetOnyxiaBreathDodgePoint(Player* bot, float& x, float& y, float& z)
 
     float x1, y1, x2, y2;
     if (!UpdateBreathLatch(onyxia, x1, y1, x2, y2))
+    {
+        ClearBreathDodge(bot);
         return false;
+    }
 
     float px = bot->GetPositionX();
     float py = bot->GetPositionY();
@@ -676,7 +951,15 @@ bool ai::GetOnyxiaBreathDodgePoint(Player* bot, float& x, float& y, float& z)
     const float clear = 22.0f;
     float dist = DistanceToSegment(px, py, x1, y1, x2, y2);
     if (dist > danger)
+    {
+        ClearBreathDodge(bot);
         return false;
+    }
+
+    // One safe point per breath line. Recomputing from the bot's position every
+    // reaction tick moves the destination and forces a new navmesh search.
+    if (ReuseBreathDodge(bot, x1, y1, x2, y2, x, y, z))
+        return true;
 
     float dx = x2 - x1;
     float dy = y2 - y1;
@@ -723,6 +1006,7 @@ bool ai::GetOnyxiaBreathDodgePoint(Player* bot, float& x, float& y, float& z)
     }
 
     z = LairFloorZ(bot, x, y);
+    StoreBreathDodge(bot, x1, y1, x2, y2, x, y, z);
     return true;
 }
 
@@ -800,38 +1084,31 @@ bool ai::GetOnyxiaPositionPoint(PlayerbotAI* ai, float& x, float& y, float& z)
 
     if (phase == 2)
     {
-        // Melee who are clearing whelps, or waiting at a pit mouth, leave their slot.
+        // Whelps on the floor, and the few bots posted at a pit mouth, leave the ring.
         if (ShouldAttackOnyxiaWhelp(ai) || ShouldLureWhelp(ai))
             return false;
 
-        if (ai->IsRanged(bot) || ai->IsHeal(bot))
-        {
-            // Stay on the ground around her, inside spell range, and outside the whelp pits.
-            float attackRange = ai->GetRange("spell");
-            if (attackRange < 30.0f)
-                attackRange = 30.0f;
+        // Ranged follow her with reach spell. A fixed slot would pull them back out of range.
+        if (ai->IsRanged(bot) && !ai->IsHeal(bot))
+            return false;
 
-            float distToBoss = Distance2d(bot->GetPositionX(), bot->GetPositionY(), onyxia->GetPositionX(), onyxia->GetPositionY());
-            if (distToBoss >= 12.0f && distToBoss <= attackRange - 5.0f && !InWhelpPit(bot->GetPositionX(), bot->GetPositionY()))
-                return false;
-
-            if (!PickRangedPhase2Point(onyxia, slot, attackRange, x, y))
-            {
-                float angle = (slot % 8) * (M_PI_F / 4.0f);
-                x = onyxia->GetPositionX() + cos(angle) * 14.0f;
-                y = onyxia->GetPositionY() + sin(angle) * 14.0f;
-                PushOutOfWhelpPits(x, y);
-            }
-        }
+        // Healers and melee hold fixed sectors. Her flight path is not their destination.
+        float radius;
+        if (ai->IsHeal(bot))
+            radius = 18.0f + (slot % 3) * 3.0f;
+        else if (ai->IsRanged(bot))
+            radius = 30.0f + (slot % 3) * 4.0f;
         else
-        {
-            // Wider ring around the pit. Eight slots, staggered off the breath lines.
-            float angle = (slot % 8) * (M_PI_F / 4.0f) + (M_PI_F / 8.0f);
-            float radius = 40.0f + (slot % 3) * 6.0f;
-            x = LAIR_CENTER_X + cos(angle) * radius;
-            y = LAIR_CENTER_Y + sin(angle) * radius;
-            PushOutOfWhelpPits(x, y);
-        }
+            radius = 46.0f + (slot % 3) * 4.0f;
+
+        Phase2SpreadPoint(slot, radius, x, y);
+        PushOutOfWhelpPits(x, y);
+        ClampToLair(x, y);
+        if (Distance2d(bot->GetPositionX(), bot->GetPositionY(), x, y) <= 4.0f)
+            return false;
+
+        z = LairFloorZ(bot, x, y);
+        return true;
     }
     else
     {
@@ -861,12 +1138,11 @@ bool ai::GetOnyxiaPositionPoint(PlayerbotAI* ai, float& x, float& y, float& z)
     }
 
     ClampToLair(x, y);
-    if (phase == 2)
-        PushOutOfWhelpPits(x, y);
+    if (Distance2d(bot->GetPositionX(), bot->GetPositionY(), x, y) <= 6.0f)
+        return false;
+
     z = LairFloorZ(bot, x, y);
-    // Phase 2 slots are sectors, not a single tile. Stop once the bot is in the sector.
-    float arrived = phase == 2 ? 18.0f : 6.0f;
-    return Distance2d(bot->GetPositionX(), bot->GetPositionY(), x, y) > arrived;
+    return true;
 }
 
 Unit* ai::FindOnyxiaFearWardTarget(PlayerbotAI* ai)
@@ -924,6 +1200,16 @@ bool ai::ShouldOnyxiaMainTankTaunt(PlayerbotAI* ai)
     return onyxia->GetVictim() != ai->GetBot();
 }
 
+bool OnyxiaMoveAwayFromBreathAction::ShouldReactionInterruptMovement() const
+{
+    float x, y, z;
+    if (!GetOnyxiaBreathDodgePoint(bot, x, y, z))
+        return false;
+
+    // The reaction engine stops movement every time this fires. Leave a dodge that is already underway.
+    return !BreathMoveUnderway(bot, x, y, z);
+}
+
 bool OnyxiaMoveAwayFromBreathAction::Execute(Event& event)
 {
     float x, y, z;
@@ -934,7 +1220,17 @@ bool OnyxiaMoveAwayFromBreathAction::Execute(Event& event)
     if (onyxia && InDeepBreath(bot, onyxia))
         SurviveOnyxiaBreath(ai, event);
 
-    return MoveTo(bot->GetMapId(), x, y, z, false, IsReaction(), false, true);
+    if (BreathMoveUnderway(bot, x, y, z))
+    {
+        SetDuration(500);
+        return true;
+    }
+
+    if (!MoveTo(bot->GetMapId(), x, y, z, false, IsReaction(), false, true))
+        return false;
+
+    RememberBreathMove(bot, x, y, z);
+    return true;
 }
 
 bool OnyxiaMoveAwayFromBreathAction::isUseful()
@@ -1081,21 +1377,8 @@ bool ai::GetOnyxiaWhelpLurePoint(PlayerbotAI* ai, float& x, float& y, float& z)
     if (!ShouldLureWhelp(ai))
         return false;
 
-    Unit* whelp = NearestWhelp(bot, true);
-    if (!whelp)
-        return false;
-
-    const float* pit = whelpPits[0];
-    float best = Distance2d(whelp->GetPositionX(), whelp->GetPositionY(), pit[0], pit[1]);
-    for (const auto& candidate : whelpPits)
-    {
-        float dist = Distance2d(whelp->GetPositionX(), whelp->GetPositionY(), candidate[0], candidate[1]);
-        if (dist < best)
-        {
-            best = dist;
-            pit = candidate;
-        }
-    }
+    uint32 slot = bot->GetObjectGuid().GetCounter();
+    const float* pit = whelpPits[slot % 2];
 
     float dx = LAIR_CENTER_X - pit[0];
     float dy = LAIR_CENTER_Y - pit[1];
@@ -1104,12 +1387,18 @@ bool ai::GetOnyxiaWhelpLurePoint(PlayerbotAI* ai, float& x, float& y, float& z)
         return false;
 
     float mouth = WHELP_PIT_RADIUS + 4.0f;
-    x = pit[0] + dx / len * mouth;
-    y = pit[1] + dy / len * mouth;
+    float side = ((slot / 8) % 2 ? 1.0f : -1.0f) * 5.0f;
+    float px = -dy / len;
+    float py = dx / len;
+    x = pit[0] + dx / len * mouth + px * side;
+    y = pit[1] + dy / len * mouth + py * side;
     PushOutOfWhelpPits(x, y);
     ClampToLair(x, y);
+    if (Distance2d(bot->GetPositionX(), bot->GetPositionY(), x, y) <= 6.0f)
+        return false;
+
     z = LairFloorZ(bot, x, y);
-    return Distance2d(bot->GetPositionX(), bot->GetPositionY(), x, y) > 6.0f;
+    return true;
 }
 
 bool OnyxiaMoveToTankSpotAction::Execute(Event& event)

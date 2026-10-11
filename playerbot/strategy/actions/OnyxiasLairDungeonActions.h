@@ -35,6 +35,7 @@ namespace ai
         OnyxiaMoveAwayFromBreathAction(PlayerbotAI* ai) : MovementAction(ai, "move away from onyxia breath") {}
         bool Execute(Event& event) override;
         bool isUseful() override;
+        bool ShouldReactionInterruptMovement() const override;
     };
 
     class OnyxiaMoveBackIntoLairAction : public MovementAction

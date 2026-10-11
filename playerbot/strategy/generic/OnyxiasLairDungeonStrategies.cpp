@@ -59,11 +59,11 @@ namespace
                         if (name == "reach melee")
                             return 0.0f;
 
-                        float attackRange = ai->GetRange("spell");
-                        if (attackRange < 30.0f)
-                            attackRange = 30.0f;
-                        float distToBoss = bot->GetDistance2d(onyxia->GetPositionX(), onyxia->GetPositionY());
-                        if (distToBoss <= attackRange)
+                        // Ranged chase her so they can keep casting. Healers stay on their sector.
+                        if (ai->IsRanged(bot) && !ai->IsHeal(bot))
+                            return 1.0f;
+
+                        if (!target || target->GetEntry() == 10184)
                             return 0.0f;
                     }
                 }
