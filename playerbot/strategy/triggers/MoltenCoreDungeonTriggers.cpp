@@ -1,6 +1,7 @@
 
 #include "playerbot/playerbot.h"
 #include "MoltenCoreDungeonTriggers.h"
+#include "playerbot/strategy/actions/MoltenCoreDungeonActions.h"
 #include "playerbot/ServerFacade.h"
 #include "playerbot/strategy/AiObjectContext.h"
 #include "Grids/GridNotifiers.h"
@@ -22,7 +23,7 @@ namespace
     constexpr float  GEDDON_ARMAGEDDON_HP   = 2.0f;   // Boss detonates Armageddon at or below this health %
     constexpr float  GEDDON_ARMAGEDDON_RANGE = 35.0f; // Run this far away from him then
 
-    // Majordomo / Sulfuron: their adds heal each other, hitting the boss while they live is wasted
+    // Majordomo / Sulfuron: the adds are the kill targets, hitting the boss while they live is wasted
     constexpr float BOSS_ADD_TARGET_SEARCH_RANGE = 60.0f;
 
     // Garr: the boss with his ring of Firesworn adds
@@ -175,6 +176,56 @@ bool MainTankOffBossTrigger::IsActive()
     Unit* target = ai->GetUnit(AI_VALUE(ObjectGuid, "current target"));
     return !(target && target->IsInWorld() && target->IsAlive()
         && target->GetTypeId() == TYPEID_UNIT && target->GetEntry() == bossEntry);
+}
+
+bool MajordomoTargetTrigger::IsActive()
+{
+    if (!bot->IsInWorld() || !sServerFacade.IsAlive(bot))
+        return false;
+
+    // Main tank holds Majordomo. Off-tanks hold elites. Healers do not attack.
+    if (ai->GetMainTank() == bot || ai->IsHeal(bot) || ai->IsTank(bot))
+        return false;
+
+    Unit* target = ai->GetUnit(AI_VALUE(ObjectGuid, "current target"));
+    if (target && target->IsPolymorphed())
+        return true;
+
+    Creature* kill = FindMajordomoKillTarget(ai);
+    if (!kill)
+        return false;
+
+    return target != kill;
+}
+
+bool MajordomoOffTankTrigger::IsActive()
+{
+    if (!bot->IsInWorld() || !sServerFacade.IsAlive(bot))
+        return false;
+
+    if (!ai->IsTank(bot) || ai->GetMainTank() == bot)
+        return false;
+
+    // Stay on the elite this off-tank is already holding
+    Unit* target = ai->GetUnit(AI_VALUE(ObjectGuid, "current target"));
+    if (target && target->IsAlive() && target->GetEntry() == 11664 && !target->IsPolymorphed() && target->GetVictim() == bot)
+        return false;
+
+    return FindMajordomoEliteToTank(ai) != nullptr;
+}
+
+bool MajordomoPolymorphHealerTrigger::IsActive()
+{
+    if (!bot->IsInWorld() || !sServerFacade.IsAlive(bot) || bot->getClass() != CLASS_MAGE)
+        return false;
+
+    Creature* healer = FindMajordomoSheepTarget(ai);
+    return healer && ai->CanCastSpell("polymorph", healer, 0);
+}
+
+bool MajordomoShieldTrigger::IsActive()
+{
+    return MajordomoShouldHoldForShield(ai);
 }
 
 bool GarrTargetTrigger::IsActive()

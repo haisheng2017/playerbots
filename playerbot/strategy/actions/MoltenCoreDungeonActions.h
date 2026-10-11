@@ -167,10 +167,52 @@ namespace ai
         std::vector<uint32> addEntries;
     };
 
+    // Kill order: skull on an add, otherwise the elite closest to Majordomo, otherwise a healer.
+    // Sheeped adds are skipped so a polymorph is not broken to retarget.
+    Creature* FindMajordomoKillTarget(PlayerbotAI* ai);
+    // A Flamewaker Healer a mage should sheep: not the kill target, not already a sheep, not immune.
+    Creature* FindMajordomoSheepTarget(PlayerbotAI* ai);
+    // An elite for an off-tank. One loose on a non-tank comes first, otherwise the least-threatened.
+    Creature* FindMajordomoEliteToTank(PlayerbotAI* ai);
+    // True while this bot's own polymorph is still on some living healer.
+    bool MajordomoMageOwnsSheep(PlayerbotAI* ai);
+    // Current target is a Flamewaker wearing Magic Reflection or Damage Shield, and this bot must stop hitting it.
+    bool MajordomoShouldHoldForShield(PlayerbotAI* ai);
+
     class MajordomoAttackAddAction : public AttackBossAddAction
     {
     public:
         MajordomoAttackAddAction(PlayerbotAI* ai) : AttackBossAddAction(ai, "attack majordomo add", {11663, 11664}) {}
+        bool Execute(Event& event) override;
+        bool isUseful() override;
+    };
+
+    // Off-tanks park on the elites the raid is not killing
+    class AttackMajordomoEliteAction : public AttackAction
+    {
+    public:
+        AttackMajordomoEliteAction(PlayerbotAI* ai) : AttackAction(ai, "attack majordomo elite") {}
+        bool Execute(Event& event) override;
+        bool isUseful() override;
+    };
+
+    // One polymorph per mage, on a healer the raid is not currently killing
+    class MajordomoPolymorphHealerAction : public Action
+    {
+    public:
+        MajordomoPolymorphHealerAction(PlayerbotAI* ai) : Action(ai, "polymorph majordomo healer") {}
+        bool Execute(Event& event) override;
+        bool isUseful() override;
+    };
+
+    // Drops the swing or the cast while the add's shield would punish it. Returns false so
+    // healing and movement on the same tick still run.
+    class MajordomoShieldHoldAction : public Action
+    {
+    public:
+        MajordomoShieldHoldAction(PlayerbotAI* ai) : Action(ai, "majordomo shield hold") {}
+        bool Execute(Event& event) override;
+        bool isUseful() override;
     };
 
     class SulfuronAttackAddAction : public AttackBossAddAction

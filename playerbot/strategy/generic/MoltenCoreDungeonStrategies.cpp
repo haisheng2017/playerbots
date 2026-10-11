@@ -2,8 +2,69 @@
 #include "playerbot/playerbot.h"
 #include "MoltenCoreDungeonStrategies.h"
 #include "DungeonMultipliers.h"
+#include "playerbot/strategy/Action.h"
 
 using namespace ai;
+
+namespace
+{
+    // While this strategy is on, generic assist would peel the raid off the kill target
+    // or walk an off-tank onto a sheep. Shields are handled by the action names they punish.
+    class MajordomoFightMultiplier : public Multiplier
+    {
+    public:
+        MajordomoFightMultiplier(PlayerbotAI* ai) : Multiplier(ai, "majordomo fight") {}
+
+        float GetValue(ai::Action* action) override
+        {
+            if (!action)
+                return 1.0f;
+
+            const std::string& name = action->getName();
+            if (!ai->IsTank(bot) && !ai->IsHeal(bot) && (name == "dps assist" || name == "dps aoe"))
+                return 0.0f;
+
+            // AoE on the pack breaks polymorph. Heals are also tagged as area threat, so healers stay exempt.
+            if (!ai->IsHeal(bot) && action->getThreatType() == ActionThreatType::ACTION_THREAT_AOE)
+                return 0.0f;
+
+            if (ai->IsTank(bot) && ai->GetMainTank() != bot && name == "tank assist")
+                return 0.0f;
+
+            Unit* target = ai->GetUnit(AI_VALUE(ObjectGuid, "current target"));
+            if (!target || !target->IsAlive())
+                return 1.0f;
+
+            if (target->GetEntry() != 11663 && target->GetEntry() != 11664)
+                return 1.0f;
+
+            const bool aimedAtCurrent = action->GetTargetName() == "current target";
+            if (target->HasAura(20619))
+            {
+                // Magic Reflection bounces spells. White melee is not a spell and keeps swinging.
+                if (name == "shoot" || name == "pet attack" || name == "reach spell")
+                    return 0.0f;
+
+                if (aimedAtCurrent && action->getThreatType() != ActionThreatType::ACTION_THREAT_NONE)
+                    return 0.0f;
+            }
+
+            if (target->HasAura(21075))
+            {
+                if (name == "pet attack")
+                    return 0.0f;
+
+                if (ai->IsMelee(bot) && (name == "melee" || name == "reach melee"))
+                    return 0.0f;
+
+                if (ai->IsMelee(bot) && aimedAtCurrent && action->getThreatType() != ActionThreatType::ACTION_THREAT_NONE)
+                    return 0.0f;
+            }
+
+            return 1.0f;
+        }
+    };
+}
 
 void MoltenCoreDungeonStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
@@ -231,8 +292,7 @@ void SulfuronFightStrategy::InitDeadTriggers(std::list<TriggerNode*>& triggers)
 
 void MajordomoFightStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
-    // Majordomo cannot die (death prevention) and periodically teleports players next to him:
-    // non-tanks pushed back out to 16 yd, the encounter is won by killing the Flamewaker adds
+    // Majordomo cannot die. Ranged and healers step out of his melee; the fight is won by killing adds.
     Player* bot = ai->GetBot();
     if (ai->IsRanged(bot) || ai->IsHeal(bot))
     {
@@ -241,16 +301,36 @@ void MajordomoFightStrategy::InitCombatTriggers(std::list<TriggerNode*>& trigger
             NextAction::array(0, new NextAction("move away from majordomo", 100.0f), NULL)));
     }
 
-    // Everyone except the main tank stays off the boss himself while his adds are up
-    // (the main tank holds Majordomo in place; he cannot be killed at all)
+    // One sheep per mage, on a healer the raid is not killing. Outranks the kill-target swap.
+    if (bot->getClass() == CLASS_MAGE)
+    {
+        triggers.push_back(new TriggerNode(
+            "majordomo polymorph healer",
+            NextAction::array(0, new NextAction("polymorph majordomo healer", 101.0f), NULL)));
+    }
+
+    // Damage dealers stack on one add: skull, else the elite closest to Majordomo, else a healer.
     triggers.push_back(new TriggerNode(
         "majordomo target",
         NextAction::array(0, new NextAction("attack majordomo add", 100.0f), NULL)));
 
-    // Pull the main tank back onto Majordomo after a one-shot player command (or a bad pull)
+    // Off-tanks hold the other elites so they do not run into the raid.
+    triggers.push_back(new TriggerNode(
+        "majordomo off tank",
+        NextAction::array(0, new NextAction("attack majordomo elite", 100.0f), NULL)));
+
+    // Pull the main tank back onto Majordomo after a teleport, a threat wipe, or a bad swap.
     triggers.push_back(new TriggerNode(
         "majordomo main tank off boss",
         NextAction::array(0, new NextAction("attack majordomo boss", 100.0f), NULL)));
+
+    // Returns false, so heals and the move-away above still run on the same tick.
+    if (!ai->IsHeal(bot))
+    {
+        triggers.push_back(new TriggerNode(
+            "majordomo shield",
+            NextAction::array(0, new NextAction("majordomo shield hold", 95.0f), NULL)));
+    }
 }
 
 void MajordomoFightStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
@@ -280,6 +360,9 @@ void MajordomoFightStrategy::InitCombatMultipliers(std::list<Multiplier*>& multi
 
     // Hold the assists back only while a skull parked on the boss would yank the raid off the adds
     multipliers.push_back(new BossRtiAssistMultiplier(ai, 12018, {11663, 11664}));
+
+    // Kill order, off-tank assignments, and the two shields
+    multipliers.push_back(new MajordomoFightMultiplier(ai));
 }
 
 void GarrFightStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)

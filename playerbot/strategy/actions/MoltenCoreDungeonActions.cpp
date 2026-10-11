@@ -53,6 +53,200 @@ namespace
 
         return nearest;
     }
+
+    constexpr uint32 MAJORDOMO_ENTRY = 12018;
+    constexpr uint32 MAJORDOMO_HEALER = 11663;
+    constexpr uint32 MAJORDOMO_ELITE = 11664;
+    constexpr uint32 MAJORDOMO_MAGIC_REFLECTION = 20619;     // 10s, 50% spell reflect, on every add
+    constexpr uint32 MAJORDOMO_DAMAGE_SHIELD = 21075;        // 10s, melee hits on an add splash back
+    constexpr uint32 MAJORDOMO_POLYMORPH_IMMUNITY = 21087;   // Healers, once half the adds are dead
+    constexpr uint32 POLYMORPH_HEAL_AURA = 12939;            // Shared by every polymorph rank
+    constexpr float MAJORDOMO_ADD_RANGE = 60.0f;
+
+    void ListMajordomoAdds(Player* bot, uint32 entry, std::list<Creature*>& out)
+    {
+        std::list<Unit*> units;
+        MaNGOS::AllCreaturesOfEntryInRangeCheck u_check(bot, entry, MAJORDOMO_ADD_RANGE);
+        MaNGOS::UnitListSearcher<MaNGOS::AllCreaturesOfEntryInRangeCheck> searcher(units, u_check);
+        Cell::VisitAllObjects(bot, searcher, MAJORDOMO_ADD_RANGE);
+
+        for (Unit* unit : units)
+        {
+            Creature* creature = (Creature*)unit;
+            if (creature && creature->IsAlive())
+                out.push_back(creature);
+        }
+    }
+
+    bool BotOwnsSheep(PlayerbotAI* ai, Unit* unit)
+    {
+        if (ai->HasAura(POLYMORPH_HEAL_AURA, unit, true))
+            return true;
+
+        return ai->HasAura("polymorph", unit, false, true)
+            || ai->HasAura("polymorph: pig", unit, false, true)
+            || ai->HasAura("polymorph: turtle", unit, false, true);
+    }
+
+    // Same answer for every bot: skull, else the elite standing closest to Majordomo, else a healer
+    Creature* SelectKillTarget(PlayerbotAI* ai, Player* bot)
+    {
+        AiObjectContext* context = ai->GetAiObjectContext();
+        if (Unit* rti = ai->GetUnit(AI_VALUE(ObjectGuid, "rti target")))
+        {
+            if (rti->IsAlive() && !rti->IsPolymorphed() && rti->GetTypeId() == TYPEID_UNIT
+                && (rti->GetEntry() == MAJORDOMO_HEALER || rti->GetEntry() == MAJORDOMO_ELITE))
+                return (Creature*)rti;
+        }
+
+        Creature* boss = FindNearestCreatureOfEntries(bot, {MAJORDOMO_ENTRY});
+
+        Creature* best = nullptr;
+        float bestDistance = MAJORDOMO_ADD_RANGE;
+        std::list<Creature*> elites;
+        ListMajordomoAdds(bot, MAJORDOMO_ELITE, elites);
+        for (Creature* add : elites)
+        {
+            if (add->IsPolymorphed())
+                continue;
+
+            float const distance = boss ? boss->GetDistance(add) : bot->GetDistance(add);
+            if (distance <= bestDistance)
+            {
+                bestDistance = distance;
+                best = add;
+            }
+        }
+
+        if (best)
+            return best;
+
+        // No elite left to kill. Healers are the adds, still skipping anything sheeped.
+        bestDistance = MAJORDOMO_ADD_RANGE;
+        std::list<Creature*> healers;
+        ListMajordomoAdds(bot, MAJORDOMO_HEALER, healers);
+        for (Creature* add : healers)
+        {
+            if (add->IsPolymorphed())
+                continue;
+
+            float const distance = boss ? boss->GetDistance(add) : bot->GetDistance(add);
+            if (distance <= bestDistance)
+            {
+                bestDistance = distance;
+                best = add;
+            }
+        }
+
+        return best;
+    }
+
+    bool MageOwnsSheep(PlayerbotAI* ai, Player* bot)
+    {
+        std::list<Creature*> healers;
+        ListMajordomoAdds(bot, MAJORDOMO_HEALER, healers);
+        for (Creature* healer : healers)
+        {
+            if (BotOwnsSheep(ai, healer))
+                return true;
+        }
+
+        return false;
+    }
+
+    Creature* SelectSheepTarget(PlayerbotAI* ai, Player* bot)
+    {
+        if (bot->getClass() != CLASS_MAGE || MageOwnsSheep(ai, bot))
+            return nullptr;
+
+        Creature* kill = SelectKillTarget(ai, bot);
+        std::list<Creature*> healers;
+        ListMajordomoAdds(bot, MAJORDOMO_HEALER, healers);
+
+        // Spread mages across different healers. A mage can only keep one polymorph.
+        Creature* best = nullptr;
+        uint32 bestScore = 0;
+        for (Creature* healer : healers)
+        {
+            if (healer->IsPolymorphed() || healer->HasAura(MAJORDOMO_POLYMORPH_IMMUNITY))
+                continue;
+
+            if (kill && healer->GetObjectGuid() == kill->GetObjectGuid())
+                continue;
+
+            uint32 const score = healer->GetGUIDLow() ^ bot->GetGUIDLow();
+            if (!best || score < bestScore)
+            {
+                best = healer;
+                bestScore = score;
+            }
+        }
+
+        return best;
+    }
+
+    Creature* SelectEliteToTank(PlayerbotAI* ai, Player* bot)
+    {
+        std::list<Creature*> elites;
+        ListMajordomoAdds(bot, MAJORDOMO_ELITE, elites);
+
+        Creature* loose = nullptr;
+        float looseDistance = MAJORDOMO_ADD_RANGE;
+        Creature* leastThreat = nullptr;
+        float minThreat = 0.0f;
+
+        for (Creature* elite : elites)
+        {
+            if (elite->IsPolymorphed())
+                continue;
+
+            // An elite chewing on a clothie gets a tank before one that is already held
+            Unit* victim = elite->GetVictim();
+            if (victim && victim->GetTypeId() == TYPEID_PLAYER && !ai->IsTank((Player*)victim))
+            {
+                float const distance = bot->GetDistance(elite);
+                if (distance <= looseDistance)
+                {
+                    looseDistance = distance;
+                    loose = elite;
+                }
+            }
+
+            float const threat = sServerFacade.GetThreatManager(elite).getThreat(bot);
+            if (!leastThreat || threat < minThreat)
+            {
+                leastThreat = elite;
+                minThreat = threat;
+            }
+        }
+
+        return loose ? loose : leastThreat;
+    }
+
+    bool ShouldHoldForShield(PlayerbotAI* ai, Player* bot)
+    {
+        // Heals are not cast at the adds. Interrupting a healer here would cancel a heal.
+        if (ai->IsHeal(bot))
+            return false;
+
+        AiObjectContext* context = ai->GetAiObjectContext();
+        Unit* target = ai->GetUnit(AI_VALUE(ObjectGuid, "current target"));
+        if (!target || !target->IsAlive())
+            return false;
+
+        if (target->GetEntry() != MAJORDOMO_HEALER && target->GetEntry() != MAJORDOMO_ELITE)
+            return false;
+
+        // Reflection bounces spells, including melee specials. White swings are not spells.
+        if (target->HasAura(MAJORDOMO_MAGIC_REFLECTION))
+            return true;
+
+        // Damage Shield punishes melee swings and a hunter pet's bites. Casters keep nuking.
+        if (target->HasAura(MAJORDOMO_DAMAGE_SHIELD) && (ai->IsMelee(bot) || bot->GetPet()))
+            return true;
+
+        return false;
+    }
 }
 
 bool RefreshMCQuintessenceAction::isPossible()
@@ -253,6 +447,149 @@ bool AttackBossAddAction::Execute(Event& event)
 
     Player* requester = event.getOwner() ? event.getOwner() : GetMaster();
     return Attack(requester, add);
+}
+
+namespace ai
+{
+    Creature* FindMajordomoKillTarget(PlayerbotAI* ai)
+    {
+        Player* bot = ai->GetBot();
+        if (!bot || !bot->IsInWorld())
+            return nullptr;
+
+        return SelectKillTarget(ai, bot);
+    }
+
+    Creature* FindMajordomoSheepTarget(PlayerbotAI* ai)
+    {
+        Player* bot = ai->GetBot();
+        if (!bot || !bot->IsInWorld())
+            return nullptr;
+
+        return SelectSheepTarget(ai, bot);
+    }
+
+    Creature* FindMajordomoEliteToTank(PlayerbotAI* ai)
+    {
+        Player* bot = ai->GetBot();
+        if (!bot || !bot->IsInWorld())
+            return nullptr;
+
+        return SelectEliteToTank(ai, bot);
+    }
+
+    bool MajordomoMageOwnsSheep(PlayerbotAI* ai)
+    {
+        Player* bot = ai->GetBot();
+        if (!bot || !bot->IsInWorld())
+            return false;
+
+        return MageOwnsSheep(ai, bot);
+    }
+
+    bool MajordomoShouldHoldForShield(PlayerbotAI* ai)
+    {
+        Player* bot = ai->GetBot();
+        if (!bot || !bot->IsInWorld())
+            return false;
+
+        return ShouldHoldForShield(ai, bot);
+    }
+}
+
+bool MajordomoAttackAddAction::isUseful()
+{
+    if (!bot->IsInWorld() || ai->GetMainTank() == bot || ai->IsHeal(bot) || ai->IsTank(bot))
+        return false;
+
+    if (FindMajordomoKillTarget(ai))
+        return true;
+
+    // Drop a sheep the bot is still swinging at once every other add is already controlled
+    Unit* target = ai->GetUnit(AI_VALUE(ObjectGuid, "current target"));
+    return target && target->IsPolymorphed();
+}
+
+bool MajordomoAttackAddAction::Execute(Event& event)
+{
+    Creature* kill = FindMajordomoKillTarget(ai);
+    if (!kill)
+    {
+        Unit* target = ai->GetUnit(AI_VALUE(ObjectGuid, "current target"));
+        if (target && target->IsPolymorphed())
+        {
+            bot->AttackStop();
+            if (Pet* pet = bot->GetPet())
+                pet->AttackStop();
+
+            SET_AI_VALUE(ObjectGuid, "current target", ObjectGuid());
+            bot->SetSelectionGuid(ObjectGuid());
+        }
+
+        return false;
+    }
+
+    Player* requester = event.getOwner() ? event.getOwner() : GetMaster();
+    return Attack(requester, kill);
+}
+
+bool AttackMajordomoEliteAction::isUseful()
+{
+    return ai->IsTank(bot) && ai->GetMainTank() != bot && FindMajordomoEliteToTank(ai);
+}
+
+bool AttackMajordomoEliteAction::Execute(Event& event)
+{
+    Creature* elite = FindMajordomoEliteToTank(ai);
+    if (!elite)
+        return false;
+
+    Player* requester = event.getOwner() ? event.getOwner() : GetMaster();
+    return Attack(requester, elite);
+}
+
+bool MajordomoPolymorphHealerAction::isUseful()
+{
+    if (bot->getClass() != CLASS_MAGE)
+        return false;
+
+    Creature* healer = FindMajordomoSheepTarget(ai);
+    return healer && ai->CanCastSpell("polymorph", healer, 0);
+}
+
+bool MajordomoPolymorphHealerAction::Execute(Event& /*event*/)
+{
+    Creature* healer = FindMajordomoSheepTarget(ai);
+    if (!healer)
+        return false;
+
+    return ai->CastSpell("polymorph", healer);
+}
+
+bool MajordomoShieldHoldAction::isUseful()
+{
+    return MajordomoShouldHoldForShield(ai);
+}
+
+bool MajordomoShieldHoldAction::Execute(Event& /*event*/)
+{
+    Unit* target = ai->GetUnit(AI_VALUE(ObjectGuid, "current target"));
+    if (target && target->HasAura(20619))
+    {
+        bot->InterruptSpell(CURRENT_GENERIC_SPELL);
+        bot->InterruptSpell(CURRENT_CHANNELED_SPELL);
+        bot->InterruptSpell(CURRENT_AUTOREPEAT_SPELL);
+        bot->InterruptSpell(CURRENT_MELEE_SPELL);
+    }
+
+    // White swings are what Damage Shield punishes. Reflection leaves those alone.
+    if (target && target->HasAura(21075) && ai->IsMelee(bot))
+        bot->AttackStop();
+
+    if (Pet* pet = bot->GetPet())
+        pet->AttackStop();
+
+    return false;
 }
 
 bool AttackBossEntryAction::isUseful()

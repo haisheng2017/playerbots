@@ -125,7 +125,7 @@ namespace ai
     };
 
     // True while a non-tank keeps a boss as its target even though the encounter's
-    // real targets (his healing/buffing adds) are still up: Majordomo and Sulfuron
+    // real targets are still up: Majordomo's Flamewakers and Sulfuron's priests
     class BossWithAddsTargetTrigger : public Trigger
     {
     public:
@@ -143,6 +143,34 @@ namespace ai
     {
     public:
         MajordomoTargetTrigger(PlayerbotAI* ai) : BossWithAddsTargetTrigger(ai, "majordomo target", 12018, {11663, 11664}) {}
+        bool IsActive() override;
+    };
+
+    // Off-tanks each hold one Flamewaker Elite. Damage stays on a single kill target,
+    // so the elites that are not being killed still need a tank or they run free.
+    class MajordomoOffTankTrigger : public Trigger
+    {
+    public:
+        MajordomoOffTankTrigger(PlayerbotAI* ai) : Trigger(ai, "majordomo off tank", 1) {}
+        bool IsActive() override;
+    };
+
+    // Mages sheep the healers that are not the kill target. After four adds die the
+    // remaining healers gain polymorph immunity and the cast stops landing.
+    class MajordomoPolymorphHealerTrigger : public Trigger
+    {
+    public:
+        MajordomoPolymorphHealerTrigger(PlayerbotAI* ai) : Trigger(ai, "majordomo polymorph healer", 1) {}
+        bool IsActive() override;
+    };
+
+    // Magic Reflection (20619) and Damage Shield (21075) land on every add together.
+    // Casters stop spells for the first, melee stops swinging for the second.
+    class MajordomoShieldTrigger : public Trigger
+    {
+    public:
+        MajordomoShieldTrigger(PlayerbotAI* ai) : Trigger(ai, "majordomo shield", 1) {}
+        bool IsActive() override;
     };
 
     // Sulfuron's Flamewaker priests heal each other and the boss: they must die first

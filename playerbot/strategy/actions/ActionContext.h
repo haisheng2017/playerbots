@@ -414,6 +414,9 @@ namespace ai
             creators["disable majordomo fight strategy"] = [](PlayerbotAI* ai) { return new MajordomoDisableFightStrategyAction(ai); };
             creators["move away from majordomo"] = [](PlayerbotAI* ai) { return new MajordomoMoveAwayAction(ai); };
             creators["attack majordomo add"] = [](PlayerbotAI* ai) { return new MajordomoAttackAddAction(ai); };
+            creators["attack majordomo elite"] = [](PlayerbotAI* ai) { return new AttackMajordomoEliteAction(ai); };
+            creators["polymorph majordomo healer"] = [](PlayerbotAI* ai) { return new MajordomoPolymorphHealerAction(ai); };
+            creators["majordomo shield hold"] = [](PlayerbotAI* ai) { return new MajordomoShieldHoldAction(ai); };
             creators["attack majordomo boss"] = [](PlayerbotAI* ai) { return new AttackMajordomoBossAction(ai); };
 
             creators["enable garr fight strategy"] = [](PlayerbotAI* ai) { return new GarrEnableFightStrategyAction(ai); };
