@@ -415,6 +415,9 @@ namespace ai
             creators["move away from majordomo"] = [](PlayerbotAI* ai) { return new MajordomoMoveAwayAction(ai); };
             creators["attack majordomo add"] = [](PlayerbotAI* ai) { return new MajordomoAttackAddAction(ai); };
             creators["attack majordomo elite"] = [](PlayerbotAI* ai) { return new AttackMajordomoEliteAction(ai); };
+            creators["attack majordomo cover"] = [](PlayerbotAI* ai) { return new AttackMajordomoCoverAction(ai); };
+            creators["majordomo main tank taunt"] = [](PlayerbotAI* ai) { return new MajordomoMainTankTauntAction(ai); };
+            creators["majordomo leave lava"] = [](PlayerbotAI* ai) { return new MajordomoLeaveLavaAction(ai); };
             creators["polymorph majordomo healer"] = [](PlayerbotAI* ai) { return new MajordomoPolymorphHealerAction(ai); };
             creators["majordomo shield hold"] = [](PlayerbotAI* ai) { return new MajordomoShieldHoldAction(ai); };
             creators["attack majordomo boss"] = [](PlayerbotAI* ai) { return new AttackMajordomoBossAction(ai); };

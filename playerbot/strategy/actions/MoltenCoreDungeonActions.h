@@ -172,8 +172,14 @@ namespace ai
     Creature* FindMajordomoKillTarget(PlayerbotAI* ai);
     // A Flamewaker Healer a mage should sheep: not the kill target, not already a sheep, not immune.
     Creature* FindMajordomoSheepTarget(PlayerbotAI* ai);
-    // An elite for an off-tank. One loose on a non-tank comes first, otherwise the least-threatened.
+    // One add per off-tank, including the skull. Elites first; healers once the elites are dead.
     Creature* FindMajordomoEliteToTank(PlayerbotAI* ai);
+    // The one off-tank who holds Majordomo while the main tank is away or has lost him.
+    bool MajordomoBotShouldCoverBoss(PlayerbotAI* ai);
+    // Main tank taunts Majordomo whenever the boss is not on him, even if another tank has it.
+    bool MajordomoMainTankShouldTaunt(PlayerbotAI* ai);
+    // Standing in the lava around Majordomo's platform.
+    bool MajordomoBotInLava(Player* bot);
     // True while this bot's own polymorph is still on some living healer.
     bool MajordomoMageOwnsSheep(PlayerbotAI* ai);
     // Current target is a Flamewaker wearing Magic Reflection or Damage Shield, and this bot must stop hitting it.
@@ -187,13 +193,40 @@ namespace ai
         bool isUseful() override;
     };
 
-    // Off-tanks park on the elites the raid is not killing
+    // Off-tanks each hold one add, including the skull the raid is killing.
     class AttackMajordomoEliteAction : public AttackAction
     {
     public:
         AttackMajordomoEliteAction(PlayerbotAI* ai) : AttackAction(ai, "attack majordomo elite") {}
         bool Execute(Event& event) override;
         bool isUseful() override;
+    };
+
+    // Main tank's taunt is reserved for Majordomo, and fires whenever the boss is not on him.
+    class MajordomoMainTankTauntAction : public Action
+    {
+    public:
+        MajordomoMainTankTauntAction(PlayerbotAI* ai) : Action(ai, "majordomo main tank taunt") {}
+        bool Execute(Event& event) override;
+        bool isUseful() override;
+    };
+
+    // One off-tank picks Majordomo up after the teleport and threat wipe, until the main tank has him again.
+    class AttackMajordomoCoverAction : public AttackAction
+    {
+    public:
+        AttackMajordomoCoverAction(PlayerbotAI* ai) : AttackAction(ai, "attack majordomo cover") {}
+        bool Execute(Event& event) override;
+        bool isUseful() override;
+    };
+
+    // Step back onto the platform. Straight line, so a path through the lava is not the way out.
+    class MajordomoLeaveLavaAction : public MovementAction
+    {
+    public:
+        MajordomoLeaveLavaAction(PlayerbotAI* ai) : MovementAction(ai, "majordomo leave lava") {}
+        bool Execute(Event& event) override;
+        bool isPossible() override;
     };
 
     // One polymorph per mage, on a healer the raid is not currently killing

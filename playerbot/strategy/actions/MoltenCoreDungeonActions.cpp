@@ -1,6 +1,9 @@
 
 #include "playerbot/playerbot.h"
 #include "MoltenCoreDungeonActions.h"
+#include "Maps/GridMap.h"
+#include <algorithm>
+#include <cmath>
 #include "playerbot/strategy/values/PositionValue.h"
 #include "playerbot/strategy/values/GuidPositionValues.h"
 #include "playerbot/strategy/AiObjectContext.h"
@@ -63,6 +66,25 @@ namespace
     constexpr uint32 MAJORDOMO_POLYMORPH_IMMUNITY = 21087;   // Healers, once half the adds are dead
     constexpr uint32 POLYMORPH_HEAL_AURA = 12939;            // Shared by every polymorph rank
     constexpr float MAJORDOMO_ADD_RANGE = 60.0f;
+    constexpr float MAJORDOMO_MT_MELEE = 12.0f;              // Main tank is "on" the boss inside this range
+    constexpr float MAJORDOMO_PLATFORM_X = 758.0892f;
+    constexpr float MAJORDOMO_PLATFORM_Y = -1176.712f;
+    constexpr float MAJORDOMO_PLATFORM_Z = -118.6403f;
+    constexpr float MAJORDOMO_LAVA_ROOM = 100.0f;
+
+    bool PositionInMagma(const WorldPosition& point)
+    {
+        const TerrainInfo* terrain = point.getTerrain();
+        if (!terrain || !terrain->CanCheckLiquidLevel(point.getX(), point.getY()))
+            return false;
+
+        GridMapLiquidData data;
+        uint32 const status = terrain->getLiquidStatus(point.getX(), point.getY(), point.getZ(), MAP_ALL_LIQUIDS, &data);
+        if (!(status & (LIQUID_MAP_IN_WATER | LIQUID_MAP_UNDER_WATER)))
+            return false;
+
+        return data.type_flags == MAP_LIQUID_TYPE_MAGMA || data.type_flags == MAP_LIQUID_TYPE_SLIME;
+    }
 
     void ListMajordomoAdds(Player* bot, uint32 entry, std::list<Creature*>& out)
     {
@@ -186,42 +208,167 @@ namespace
         return best;
     }
 
-    Creature* SelectEliteToTank(PlayerbotAI* ai, Player* bot)
+    bool MajordomoElitesRemain(Player* bot)
     {
         std::list<Creature*> elites;
         ListMajordomoAdds(bot, MAJORDOMO_ELITE, elites);
-
-        Creature* loose = nullptr;
-        float looseDistance = MAJORDOMO_ADD_RANGE;
-        Creature* leastThreat = nullptr;
-        float minThreat = 0.0f;
-
         for (Creature* elite : elites)
         {
-            if (elite->IsPolymorphed())
+            if (elite->IsAlive() && !elite->IsPolymorphed())
+                return true;
+        }
+
+        return false;
+    }
+
+    std::vector<Player*> ListOffTanks(PlayerbotAI* ai, Player* bot)
+    {
+        std::vector<Player*> tanks;
+        auto consider = [&](Player* member)
+        {
+            if (!member || !member->IsInWorld() || member->IsBeingTeleported() || !member->IsAlive())
+                return;
+            if (member->GetMapId() != bot->GetMapId())
+                return;
+            if (!ai->IsTank(member) || ai->GetMainTank() == member)
+                return;
+
+            tanks.push_back(member);
+        };
+
+        if (Group* group = bot->GetGroup())
+        {
+            for (GroupReference* gref = group->GetFirstMember(); gref; gref = gref->next())
+                consider(gref->getSource());
+        }
+        else
+            consider(bot);
+
+        std::sort(tanks.begin(), tanks.end(), [](Player* a, Player* b) { return a->GetGUIDLow() < b->GetGUIDLow(); });
+        tanks.erase(std::unique(tanks.begin(), tanks.end()), tanks.end());
+        return tanks;
+    }
+
+    // One off-tank per add, including the skull. Adds hitting a non-tank are handed out first.
+    Creature* SelectSpreadAdd(PlayerbotAI* ai, Player* bot, uint32 entry)
+    {
+        std::list<Creature*> adds;
+        ListMajordomoAdds(bot, entry, adds);
+
+        std::vector<Creature*> loose;
+        std::vector<Creature*> rest;
+        for (Creature* add : adds)
+        {
+            if (add->IsPolymorphed())
                 continue;
 
-            // An elite chewing on a clothie gets a tank before one that is already held
-            Unit* victim = elite->GetVictim();
+            Unit* victim = add->GetVictim();
             if (victim && victim->GetTypeId() == TYPEID_PLAYER && !ai->IsTank((Player*)victim))
-            {
-                float const distance = bot->GetDistance(elite);
-                if (distance <= looseDistance)
-                {
-                    looseDistance = distance;
-                    loose = elite;
-                }
-            }
+                loose.push_back(add);
+            else
+                rest.push_back(add);
+        }
 
-            float const threat = sServerFacade.GetThreatManager(elite).getThreat(bot);
-            if (!leastThreat || threat < minThreat)
+        auto byGuid = [](Creature* a, Creature* b) { return a->GetGUIDLow() < b->GetGUIDLow(); };
+        std::sort(loose.begin(), loose.end(), byGuid);
+        std::sort(rest.begin(), rest.end(), byGuid);
+
+        std::vector<Creature*> pool = loose;
+        pool.insert(pool.end(), rest.begin(), rest.end());
+        if (pool.empty())
+            return nullptr;
+
+        for (Creature* add : pool)
+        {
+            if (add->GetVictim() == bot)
+                return add;
+        }
+
+        // Leave an add another off-tank is already holding. Free tanks split what is still on a non-tank.
+        std::vector<Creature*> open;
+        for (Creature* add : pool)
+        {
+            Unit* victim = add->GetVictim();
+            if (victim && victim->GetTypeId() == TYPEID_PLAYER && ai->IsTank((Player*)victim))
+                continue;
+            open.push_back(add);
+        }
+        if (open.empty())
+            return nullptr;
+
+        std::vector<Player*> freeTanks;
+        for (Player* tank : ListOffTanks(ai, bot))
+        {
+            bool holding = false;
+            for (Creature* add : pool)
             {
-                leastThreat = elite;
-                minThreat = threat;
+                if (add->GetVictim() == tank)
+                    holding = true;
+            }
+            if (!holding)
+                freeTanks.push_back(tank);
+        }
+        if (freeTanks.empty())
+            return open.front();
+
+        uint32 index = 0;
+        for (; index < freeTanks.size(); ++index)
+        {
+            if (freeTanks[index] == bot)
+                break;
+        }
+        if (index >= freeTanks.size())
+            return nullptr;
+
+        return open[index % open.size()];
+    }
+
+    bool BossNeedsCover(PlayerbotAI* ai, Player* bot, Creature* boss)
+    {
+        Player* mainTank = ai->GetMainTank();
+        if (!mainTank || !mainTank->IsAlive() || mainTank->GetMapId() != bot->GetMapId())
+            return false;
+
+        // Teleported off the platform, or still running back.
+        if (mainTank->GetDistance(boss) > MAJORDOMO_MT_MELEE)
+            return true;
+
+        // Threat wipe: somebody else has him even though the main tank is in melee.
+        return boss->GetVictim() != mainTank;
+    }
+
+    Player* ChooseCoverTank(PlayerbotAI* ai, Player* bot, Creature* boss)
+    {
+        if (Unit* victim = boss->GetVictim())
+        {
+            if (victim->GetTypeId() == TYPEID_PLAYER)
+            {
+                Player* player = (Player*)victim;
+                if (player->IsAlive() && ai->IsTank(player) && ai->GetMainTank() != player)
+                    return player;
             }
         }
 
-        return loose ? loose : leastThreat;
+        Player* closest = nullptr;
+        float closestDistance = 0.0f;
+        for (Player* tank : ListOffTanks(ai, bot))
+        {
+            float const distance = tank->GetDistance(boss);
+            if (!closest || distance < closestDistance)
+            {
+                closest = tank;
+                closestDistance = distance;
+            }
+        }
+
+        return closest;
+    }
+
+    Creature* SelectEliteToTank(PlayerbotAI* ai, Player* bot)
+    {
+        // Healers, including the kill target, once the elites are dead. Until then, the elites.
+        uint32 const entry = MajordomoElitesRemain(bot) ? MAJORDOMO_ELITE : MAJORDOMO_HEALER;
+        return SelectSpreadAdd(ai, bot, entry);
     }
 
     bool ShouldHoldForShield(PlayerbotAI* ai, Player* bot)
@@ -558,6 +705,50 @@ namespace ai
 
         return ShouldHoldForShield(ai, bot);
     }
+
+    bool MajordomoBotShouldCoverBoss(PlayerbotAI* ai)
+    {
+        Player* bot = ai->GetBot();
+        if (!bot || !bot->IsInWorld() || !sServerFacade.IsAlive(bot))
+            return false;
+        if (!ai->IsTank(bot) || ai->GetMainTank() == bot)
+            return false;
+
+        Creature* boss = FindNearestCreatureOfEntries(bot, {MAJORDOMO_ENTRY});
+        if (!boss || !boss->IsAlive())
+            return false;
+        if (!BossNeedsCover(ai, bot, boss))
+            return false;
+
+        return ChooseCoverTank(ai, bot, boss) == bot;
+    }
+
+    bool MajordomoMainTankShouldTaunt(PlayerbotAI* ai)
+    {
+        Player* bot = ai->GetBot();
+        if (!bot || !bot->IsInWorld() || ai->GetMainTank() != bot)
+            return false;
+
+        Creature* boss = FindNearestCreatureOfEntries(bot, {MAJORDOMO_ENTRY});
+        if (!boss || !boss->IsAlive())
+            return false;
+
+        // Anyone else, tank or not.
+        return boss->GetVictim() != bot;
+    }
+
+    bool MajordomoBotInLava(Player* bot)
+    {
+        if (!bot || !bot->IsInWorld() || bot->IsBeingTeleported() || bot->GetMapId() != 409)
+            return false;
+
+        float const dx = bot->GetPositionX() - MAJORDOMO_PLATFORM_X;
+        float const dy = bot->GetPositionY() - MAJORDOMO_PLATFORM_Y;
+        if (dx * dx + dy * dy > MAJORDOMO_LAVA_ROOM * MAJORDOMO_LAVA_ROOM)
+            return false;
+
+        return PositionInMagma(WorldPosition(bot));
+    }
 }
 
 bool MajordomoAttackAddAction::isUseful()
@@ -598,6 +789,9 @@ bool MajordomoAttackAddAction::Execute(Event& event)
 
 bool AttackMajordomoEliteAction::isUseful()
 {
+    if (MajordomoBotShouldCoverBoss(ai))
+        return false;
+
     return ai->IsTank(bot) && ai->GetMainTank() != bot && FindMajordomoEliteToTank(ai);
 }
 
@@ -609,6 +803,123 @@ bool AttackMajordomoEliteAction::Execute(Event& event)
 
     Player* requester = event.getOwner() ? event.getOwner() : GetMaster();
     return Attack(requester, elite);
+}
+
+bool MajordomoMainTankTauntAction::isUseful()
+{
+    if (!MajordomoMainTankShouldTaunt(ai))
+        return false;
+
+    Creature* boss = FindNearestCreatureOfEntries(bot, {12018});
+    if (!boss)
+        return false;
+
+    const char* spells[] = { "taunt", "mocking blow", "growl", "hand of reckoning", "righteous defense" };
+    for (const char* spell : spells)
+    {
+        if (ai->CanCastSpell(spell, boss, 0))
+            return true;
+    }
+
+    return false;
+}
+
+bool MajordomoMainTankTauntAction::Execute(Event& /*event*/)
+{
+    Creature* boss = FindNearestCreatureOfEntries(bot, {12018});
+    if (!boss)
+        return false;
+
+    SET_AI_VALUE(ObjectGuid, "current target", boss->GetObjectGuid());
+
+    const char* spells[] = { "taunt", "mocking blow", "growl", "hand of reckoning", "righteous defense" };
+    for (const char* spell : spells)
+    {
+        if (ai->CanCastSpell(spell, boss, 0) && ai->CastSpell(spell, boss))
+            return true;
+    }
+
+    return false;
+}
+
+bool AttackMajordomoCoverAction::isUseful()
+{
+    return MajordomoBotShouldCoverBoss(ai);
+}
+
+bool AttackMajordomoCoverAction::Execute(Event& event)
+{
+    Creature* boss = FindNearestCreatureOfEntries(bot, {12018});
+    if (!boss)
+        return false;
+
+    // Pull him off a non-tank, or off the main tank while that tank is still out of melee.
+    // Once the main tank is back in range, his own taunt takes the boss and this stops.
+    Unit* victim = boss->GetVictim();
+    bool taunt = victim != bot;
+    if (victim && victim->GetTypeId() == TYPEID_PLAYER)
+    {
+        Player* player = (Player*)victim;
+        if (ai->IsTank(player) && ai->GetMainTank() != player)
+            taunt = false;
+        if (player == ai->GetMainTank() && player->GetDistance(boss) <= MAJORDOMO_MT_MELEE)
+            taunt = false;
+    }
+    if (taunt)
+    {
+        const char* spells[] = { "taunt", "mocking blow", "growl", "hand of reckoning", "righteous defense" };
+        for (const char* spell : spells)
+        {
+            if (ai->CanCastSpell(spell, boss, 0) && ai->CastSpell(spell, boss))
+                break;
+        }
+    }
+
+    Player* requester = event.getOwner() ? event.getOwner() : GetMaster();
+    return Attack(requester, boss);
+}
+
+bool MajordomoLeaveLavaAction::isPossible()
+{
+    if (MovementAction::isPossible())
+        return ai->CanMove();
+
+    return false;
+}
+
+bool MajordomoLeaveLavaAction::Execute(Event& /*event*/)
+{
+    WorldPosition from(bot);
+    WorldPosition goal(bot->GetMapId(), MAJORDOMO_PLATFORM_X, MAJORDOMO_PLATFORM_Y, MAJORDOMO_PLATFORM_Z);
+    if (Creature* boss = FindNearestCreatureOfEntries(bot, {12018}))
+    {
+        WorldPosition bossPosition(boss);
+        if (boss->IsAlive() && !PositionInMagma(bossPosition))
+            goal = bossPosition;
+    }
+
+    float const dx = goal.getX() - from.getX();
+    float const dy = goal.getY() - from.getY();
+    float dist = sqrt(dx * dx + dy * dy);
+    if (dist < 1.0f)
+        dist = 1.0f;
+
+    for (float step = 5.0f; step < dist && step <= 40.0f; step += 5.0f)
+    {
+        WorldPosition point(bot->GetMapId(),
+            from.getX() + dx / dist * step,
+            from.getY() + dy / dist * step,
+            from.getZ());
+        point.setZ(point.getHeight());
+        if (PositionInMagma(point))
+            continue;
+        if (!bot->IsWithinLOS(point.getX(), point.getY(), point.getZ() + bot->GetCollisionHeight()))
+            continue;
+
+        return MoveTo(bot->GetMapId(), point.getX(), point.getY(), point.getZ(), false, IsReaction(), true, true);
+    }
+
+    return MoveTo(bot->GetMapId(), goal.getX(), goal.getY(), goal.getZ(), false, IsReaction(), false, true);
 }
 
 bool MajordomoPolymorphHealerAction::isUseful()

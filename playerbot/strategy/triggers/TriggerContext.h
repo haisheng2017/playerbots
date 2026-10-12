@@ -353,6 +353,9 @@ namespace ai
             creators["majordomo too close"] = [](PlayerbotAI* ai) { return new MajordomoTooCloseTrigger(ai); };
             creators["majordomo target"] = [](PlayerbotAI* ai) { return new MajordomoTargetTrigger(ai); };
             creators["majordomo off tank"] = [](PlayerbotAI* ai) { return new MajordomoOffTankTrigger(ai); };
+            creators["majordomo cover boss"] = [](PlayerbotAI* ai) { return new MajordomoCoverBossTrigger(ai); };
+            creators["majordomo main tank taunt"] = [](PlayerbotAI* ai) { return new MajordomoMainTankTauntTrigger(ai); };
+            creators["majordomo lava"] = [](PlayerbotAI* ai) { return new MajordomoLavaTrigger(ai); };
             creators["majordomo polymorph healer"] = [](PlayerbotAI* ai) { return new MajordomoPolymorphHealerTrigger(ai); };
             creators["majordomo shield"] = [](PlayerbotAI* ai) { return new MajordomoShieldTrigger(ai); };
             creators["majordomo main tank off boss"] = [](PlayerbotAI* ai) { return new MajordomoMainTankOffBossTrigger(ai); };

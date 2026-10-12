@@ -207,12 +207,35 @@ bool MajordomoOffTankTrigger::IsActive()
     if (!ai->IsTank(bot) || ai->GetMainTank() == bot)
         return false;
 
-    // Stay on the elite this off-tank is already holding
-    Unit* target = ai->GetUnit(AI_VALUE(ObjectGuid, "current target"));
-    if (target && target->IsAlive() && target->GetEntry() == 11664 && !target->IsPolymorphed() && target->GetVictim() == bot)
+    // This off-tank is the one holding the boss while the main tank is away.
+    if (MajordomoBotShouldCoverBoss(ai))
         return false;
 
-    return FindMajordomoEliteToTank(ai) != nullptr;
+    Creature* add = FindMajordomoEliteToTank(ai);
+    if (!add)
+        return false;
+
+    // Already holding the assigned add.
+    Unit* target = ai->GetUnit(AI_VALUE(ObjectGuid, "current target"));
+    if (target == add && add->GetVictim() == bot && !add->IsPolymorphed())
+        return false;
+
+    return true;
+}
+
+bool MajordomoMainTankTauntTrigger::IsActive()
+{
+    return bot->IsInWorld() && sServerFacade.IsAlive(bot) && MajordomoMainTankShouldTaunt(ai);
+}
+
+bool MajordomoCoverBossTrigger::IsActive()
+{
+    return bot->IsInWorld() && sServerFacade.IsAlive(bot) && MajordomoBotShouldCoverBoss(ai);
+}
+
+bool MajordomoLavaTrigger::IsActive()
+{
+    return MajordomoBotInLava(bot);
 }
 
 bool MajordomoPolymorphHealerTrigger::IsActive()

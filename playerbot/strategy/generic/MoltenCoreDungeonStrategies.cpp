@@ -31,6 +31,12 @@ namespace
             if (ai->IsTank(bot) && ai->GetMainTank() != bot && name == "tank assist")
                 return 0.0f;
 
+            // The main tank's taunt is only for Majordomo, via "majordomo main tank taunt".
+            if (ai->GetMainTank() == bot &&
+                (name == "taunt" || name == "mocking blow" || name == "growl" ||
+                 name == "hand of reckoning" || name == "righteous defense"))
+                return 0.0f;
+
             Unit* target = ai->GetUnit(AI_VALUE(ObjectGuid, "current target"));
             if (!target || !target->IsAlive())
                 return 1.0f;
@@ -66,8 +72,19 @@ namespace
     };
 }
 
+void MoltenCoreDungeonStrategy::InitReactionTriggers(std::list<TriggerNode*>& triggers)
+{
+    triggers.push_back(new TriggerNode(
+        "majordomo lava",
+        NextAction::array(0, new NextAction("majordomo leave lava", 110.0f), NULL)));
+}
+
 void MoltenCoreDungeonStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
+    triggers.push_back(new TriggerNode(
+        "majordomo lava",
+        NextAction::array(0, new NextAction("majordomo leave lava", 110.0f), NULL)));
+
     triggers.push_back(new TriggerNode(
         "start magmadar fight",
         NextAction::array(0, new NextAction("enable magmadar fight strategy", 100.0f), NULL)));
@@ -120,6 +137,10 @@ void MoltenCoreDungeonStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& t
         "val::has object::go usable filter::entry filter::{gos close,mc runes}",
         NextAction::array(0, new NextAction("use id::{17333,entry filter::{gos close,mc runes}}", 1.0f), NULL)));
         */
+
+    triggers.push_back(new TriggerNode(
+        "majordomo lava",
+        NextAction::array(0, new NextAction("majordomo leave lava", 110.0f), NULL)));
 
     // Dousing item refill: keep 1 Aqual Quintessence in the bot's bags (douse once, refill one)
     triggers.push_back(new TriggerNode(
@@ -322,7 +343,17 @@ void MajordomoFightStrategy::InitCombatTriggers(std::list<TriggerNode*>& trigger
         "majordomo target",
         NextAction::array(0, new NextAction("attack majordomo add", 100.0f), NULL)));
 
-    // Off-tanks hold the other elites so they do not run into the raid.
+    // Taunt Majordomo whenever he is not on the main tank, even if another tank is holding him.
+    triggers.push_back(new TriggerNode(
+        "majordomo main tank taunt",
+        NextAction::array(0, new NextAction("majordomo main tank taunt", 104.0f), NULL)));
+
+    // One off-tank holds the boss while the main tank is teleported or has lost him.
+    triggers.push_back(new TriggerNode(
+        "majordomo cover boss",
+        NextAction::array(0, new NextAction("attack majordomo cover", 102.0f), NULL)));
+
+    // Off-tanks each hold one add, including the skull, so nothing is left on a non-tank.
     triggers.push_back(new TriggerNode(
         "majordomo off tank",
         NextAction::array(0, new NextAction("attack majordomo elite", 100.0f), NULL)));
@@ -353,6 +384,13 @@ void MajordomoFightStrategy::InitDeadTriggers(std::list<TriggerNode*>& triggers)
     triggers.push_back(new TriggerNode(
         "end majordomo fight",
         NextAction::array(0, new NextAction("disable majordomo fight strategy", 100.0f), NULL)));
+}
+
+void MajordomoFightStrategy::InitReactionTriggers(std::list<TriggerNode*>& triggers)
+{
+    triggers.push_back(new TriggerNode(
+        "majordomo lava",
+        NextAction::array(0, new NextAction("majordomo leave lava", 110.0f), NULL)));
 }
 
 void MajordomoFightStrategy::InitCombatMultipliers(std::list<Multiplier*>& multipliers)

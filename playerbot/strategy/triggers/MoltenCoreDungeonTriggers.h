@@ -146,12 +146,35 @@ namespace ai
         bool IsActive() override;
     };
 
-    // Off-tanks each hold one Flamewaker Elite. Damage stays on a single kill target,
-    // so the elites that are not being killed still need a tank or they run free.
+    // Off-tanks each hold one add, including the skull. Elites first, then the healers.
     class MajordomoOffTankTrigger : public Trigger
     {
     public:
         MajordomoOffTankTrigger(PlayerbotAI* ai) : Trigger(ai, "majordomo off tank", 1) {}
+        bool IsActive() override;
+    };
+
+    // Boss is on anyone but the main tank, including another tank.
+    class MajordomoMainTankTauntTrigger : public Trigger
+    {
+    public:
+        MajordomoMainTankTauntTrigger(PlayerbotAI* ai) : Trigger(ai, "majordomo main tank taunt", 1) {}
+        bool IsActive() override;
+    };
+
+    // Main tank teleported or dropped: one off-tank holds the boss until he has it back.
+    class MajordomoCoverBossTrigger : public Trigger
+    {
+    public:
+        MajordomoCoverBossTrigger(PlayerbotAI* ai) : Trigger(ai, "majordomo cover boss", 1) {}
+        bool IsActive() override;
+    };
+
+    // In the lava around the platform, whether teleported there or walked in.
+    class MajordomoLavaTrigger : public Trigger
+    {
+    public:
+        MajordomoLavaTrigger(PlayerbotAI* ai) : Trigger(ai, "majordomo lava", 1) {}
         bool IsActive() override;
     };
 
