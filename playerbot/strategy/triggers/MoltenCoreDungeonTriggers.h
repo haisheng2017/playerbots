@@ -307,6 +307,14 @@ namespace ai
     // 90s (he re-emerges regardless and they keep fighting alongside him). While
     // they are up the whole raid switches to them - submerged Ragnaros cannot be
     // attacked, so the generic assist would switch on its own anyway
+    // Hold a slot on the platform ring instead of searching the rock navmesh.
+    class RagnarosSpreadTrigger : public Trigger
+    {
+    public:
+        RagnarosSpreadTrigger(PlayerbotAI* ai) : Trigger(ai, "ragnaros spread", 1) {}
+        bool IsActive() override;
+    };
+
     class RagnarosSonTargetTrigger : public Trigger
     {
     public:

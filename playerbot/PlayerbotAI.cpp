@@ -37,6 +37,7 @@
 #include "strategy/ItemVisitors.h"
 #include "strategy/values/LootValues.h"
 #include "strategy/values/AttackersValue.h"
+#include "strategy/actions/MoltenCoreDungeonActions.h"
 #include "Entities/Transports.h"
 #include "Guilds/GuildMgr.h"
 #include "Chat/ChannelMgr.h"
@@ -2213,15 +2214,25 @@ void PlayerbotAI::HandleBotOutgoingPacket(const WorldPacket& packet)
         jumpTime = curTime + sWorld.GetAverageDiff() + (uint32)(timeToLand * static_cast<uint32>(IN_MILLISECONDS)) + 1000;
 
         // Snap the landing point onto the nearest walkable polygon: knockbacks
-        // (Ragnaros e.g.) fling bots into lava or onto unreachable ledges where
-        // their own pathfinding can never reach them (bot nav excludes magma).
+        // fling bots into lava or onto unreachable ledges where their own
+        // pathfinding can never reach them (bot nav excludes magma).
         // Molten Core only - open-world/pvp knockbacks keep their raw landing.
+        // Ragnaros's room is the exception: the nearest polygon is a rock pillar
+        // above fall-damage height, so land on the platform ring instead.
         static constexpr uint32 MOLTEN_CORE_MAP_ID = 409;
-        if (!jumpInPlace && bot->GetMapId() == MOLTEN_CORE_MAP_ID)
+        if (bot->GetMapId() == MOLTEN_CORE_MAP_ID)
         {
-            WorldPosition landing = dest_calculated;
-            if (landing.ClosestCorrectPoint(15.0f, 10.0f, bot->GetInstanceId()))
-                dest_calculated = landing;
+            float landX = dest_calculated.getX();
+            float landY = dest_calculated.getY();
+            float landZ = dest_calculated.getZ();
+            if (TryRagnarosRingLanding(bot, landX, landY, landZ))
+                dest_calculated = WorldPosition(dest_calculated.getMapId(), landX, landY, landZ);
+            else if (!jumpInPlace)
+            {
+                WorldPosition landing = dest_calculated;
+                if (landing.ClosestCorrectPoint(15.0f, 10.0f, bot->GetInstanceId()))
+                    dest_calculated = landing;
+            }
         }
 
         SetJumpDestination(dest_calculated);

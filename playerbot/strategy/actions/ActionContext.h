@@ -436,6 +436,8 @@ namespace ai
             creators["disable ragnaros warlock cc"] = [](PlayerbotAI* ai) { return new RagnarosDisableWarlockCcAction(ai); };
             creators["move away from ragnaros"] = [](PlayerbotAI* ai) { return new RagnarosMoveAwayAction(ai); };
             creators["move away from ragnaros flame"] = [](PlayerbotAI* ai) { return new RagnarosMoveAwayFromFlameAction(ai); };
+            creators["ragnaros spread"] = [](PlayerbotAI* ai) { return new RagnarosSpreadAction(ai); };
+            creators["ragnaros step aside"] = [](PlayerbotAI* ai) { return new RagnarosStepAsideAction(ai); };
             creators["attack ragnaros boss"] = [](PlayerbotAI* ai) { return new AttackRagnarosBossAction(ai); };
             creators["attack ragnaros son"] = [](PlayerbotAI* ai) { return new AttackRagnarosSonAction(ai); };
 

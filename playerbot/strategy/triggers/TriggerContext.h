@@ -369,6 +369,7 @@ namespace ai
             creators["start ragnaros fight"] = [](PlayerbotAI* ai) { return new RagnarosStartFightTrigger(ai); };
             creators["end ragnaros fight"] = [](PlayerbotAI* ai) { return new RagnarosEndFightTrigger(ai); };
             creators["ragnaros too close"] = [](PlayerbotAI* ai) { return new RagnarosTooCloseTrigger(ai); };
+            creators["ragnaros spread"] = [](PlayerbotAI* ai) { return new RagnarosSpreadTrigger(ai); };
             creators["ragnaros flame near"] = [](PlayerbotAI* ai) { return new RagnarosFlameNearTrigger(ai); };
             creators["ragnaros lava burst"] = [](PlayerbotAI* ai) { return new RagnarosLavaBurstTrigger(ai); };
             creators["ragnaros son target"] = [](PlayerbotAI* ai) { return new RagnarosSonTargetTrigger(ai); };

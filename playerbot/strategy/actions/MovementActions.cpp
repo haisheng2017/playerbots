@@ -16,6 +16,7 @@
 #include "Entities/Vehicle.h"
 #endif
 #include "playerbot/strategy/generic/CombatStrategy.h"
+#include "playerbot/strategy/actions/MoltenCoreDungeonActions.h"
 
 using namespace ai;
 
@@ -1136,10 +1137,17 @@ bool MovementAction::MoveTo2(const WorldPosition& endPos, bool idle, bool react,
     
     bool isWalking = false;
 
-    // Throttle retries of failed path searches: a failed search otherwise
-    // re-runs the whole navmesh chain every think tick, which multiplies
-    // across a whole raid once a knockback dropped bots somewhere unreachable.
+    // A straight-line move never searches the navmesh. The path is the destination alone.
+    TravelPath movePath;
+    if (noPath)
     {
+        movePath.addPoint(endPos);
+    }
+    else
+    {
+        // Throttle retries of failed path searches: a failed search otherwise
+        // re-runs the whole navmesh chain every think tick, which multiplies
+        // across a whole raid once a knockback dropped bots somewhere unreachable.
         time_t now = time(0);
         if (lastMove.nextPathTry > now && lastMove.lastFailedPathTarget.distance(endPos) < sPlayerbotAIConfig.tooCloseDistance)
         {
@@ -1149,6 +1157,18 @@ bool MovementAction::MoveTo2(const WorldPosition& endPos, bool idle, bool react,
             // Never inside battlegrounds - a teleport would warp pvp.
             if (!bot->InBattleGround() && lastMove.pathFailedSince && lastMove.pathFailedSince + 5 <= now)
             {
+                float rescueX = endPos.getX();
+                float rescueY = endPos.getY();
+                float rescueZ = endPos.getZ();
+                // Ragnaros's rocks are legal navmesh and sit above fall-damage height.
+                if (TryRagnarosRingLanding(bot, rescueX, rescueY, rescueZ))
+                {
+                    sLog.outDetail("%s: no path in Ragnaros's room since %u — teleporting to the platform.", bot->GetName(), (uint32)lastMove.pathFailedSince);
+                    lastMove.clear();
+                    WorldPosition landing(bot->GetMapId(), rescueX, rescueY, rescueZ);
+                    return bot->TeleportTo(bot->GetMapId(), rescueX, rescueY, rescueZ, startPos.getAngleTo(landing));
+                }
+
                 WorldPosition rescue = endPos;
                 if (rescue.getMapId() == bot->GetMapId() && rescue.ClosestCorrectPoint(15.0f, 10.0f, bot->GetInstanceId()))
                 {
@@ -1160,9 +1180,9 @@ bool MovementAction::MoveTo2(const WorldPosition& endPos, bool idle, bool react,
 
             return false;
         }
-    }
 
-    TravelPath movePath = ResolveMovePath(startPos, endPos, mover, lastMove);
+        movePath = ResolveMovePath(startPos, endPos, mover, lastMove);
+    }
 
     lastMove.setPath(movePath);
 

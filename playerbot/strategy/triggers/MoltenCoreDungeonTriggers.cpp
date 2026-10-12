@@ -307,16 +307,27 @@ bool GarrOffTankTrigger::IsActive()
     return true;
 }
 
+bool RagnarosSpreadTrigger::IsActive()
+{
+    return BotInRagnarosRoom(bot);
+}
+
 bool RagnarosSonTargetTrigger::IsActive()
 {
     if (!bot->IsInWorld() || !sServerFacade.IsAlive(bot))
         return false;
 
-    // The main tank parks on the boss's spot waiting for him to re-emerge; healers
-    // stay with the healing engine. Everyone else - off-tanks included - kills
-    // the Sons before the 90s window closes
-    if (ai->GetMainTank() == bot || ai->IsHeal(bot))
+    // Healers stay on the ring. While Ragnaros is up the main tank stays on him;
+    // once he submerges the main tank takes a Son of Flame like the other tanks.
+    if (ai->IsHeal(bot))
         return false;
+
+    if (ai->GetMainTank() == bot)
+    {
+        Creature* ragnaros = FindRagnarosPlatformBoss(bot);
+        if (ragnaros && !ragnaros->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_UNINTERACTIBLE))
+            return false;
+    }
 
     // Living Sons of Flame are the kill target while they are up (the warlocks
     // banish their share; banished ones leave the attackable list)

@@ -180,6 +180,19 @@ namespace ai
     bool MajordomoMainTankShouldTaunt(PlayerbotAI* ai);
     // Standing in the lava around Majordomo's platform.
     bool MajordomoBotInLava(Player* bot);
+
+    // Ragnaros's room. The navmesh treats the rock pillars as walkable ground, so
+    // movement here stays on a ring at his floor height and does not search it.
+    Creature* FindRagnarosPlatformBoss(Player* bot);
+    bool BotInRagnarosRoom(Player* bot);
+    bool RagnarosBotAboveFloor(Player* bot);
+    // This bot's slot on the ring. Melee and tanks take the inner edge, everyone else 35y.
+    bool RagnarosRingPoint(Player* bot, float& x, float& y, float& z);
+    // True when the bot is in the room: rewrites x/y/z to the ring and skips navmesh snapping.
+    bool TryRagnarosRingLanding(Player* bot, float& x, float& y, float& z);
+    // One Son of Flame per tank while Ragnaros is submerged. The main tank is included then.
+    Creature* FindRagnarosSonToTank(PlayerbotAI* ai);
+    bool RagnarosSonsAlive(PlayerbotAI* ai);
     // True while this bot's own polymorph is still on some living healer.
     bool MajordomoMageOwnsSheep(PlayerbotAI* ai);
     // Current target is a Flamewaker wearing Magic Reflection or Damage Shield, and this bot must stop hitting it.
@@ -354,18 +367,41 @@ namespace ai
         RagnarosMoveAwayFromFlameAction(PlayerbotAI* ai) : MoveAwayFromCreature(ai, "move away from ragnaros flame", 13148, 13.0f) {}
     };
 
+    // Hold a slot on the platform ring. A bot already up on a rock is teleported down.
+    class RagnarosSpreadAction : public MovementAction
+    {
+    public:
+        RagnarosSpreadAction(PlayerbotAI* ai) : MovementAction(ai, "ragnaros spread") {}
+        bool Execute(Event& event) override;
+        bool isUseful() override;
+    };
+
+    // Step along the ring, away from a lava patch or a flame. No navmesh search.
+    class RagnarosStepAsideAction : public MovementAction
+    {
+    public:
+        RagnarosStepAsideAction(PlayerbotAI* ai) : MovementAction(ai, "ragnaros step aside") {}
+        bool Execute(Event& event) override;
+        bool isUseful() override;
+    };
+
     // The main tank's pull back onto Ragnaros: he is rooted but nukes random
-    // players whenever nobody stood in his melee range long enough
+    // players whenever nobody stood in his melee range long enough.
+    // The walk is a straight line on the platform.
     class AttackRagnarosBossAction : public AttackBossEntryAction
     {
     public:
         AttackRagnarosBossAction(PlayerbotAI* ai) : AttackBossEntryAction(ai, "attack ragnaros boss", 11502) {}
+        bool Execute(Event& event) override;
+        bool isUseful() override;
     };
 
     class AttackRagnarosSonAction : public AttackBossAddAction
     {
     public:
         AttackRagnarosSonAction(PlayerbotAI* ai) : AttackBossAddAction(ai, "attack ragnaros son", {12143}) {}
+        bool Execute(Event& event) override;
+        bool isUseful() override;
     };
 
     class MoveToMCRuneAction : public MoveToAction

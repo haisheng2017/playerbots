@@ -1033,3 +1033,637 @@ bool AttackGarrFireswornAction::Execute(Event& event)
     Player* requester = event.getOwner() ? event.getOwner() : GetMaster();
     return Attack(requester, add);
 }
+
+namespace
+{
+    constexpr uint32 RAGNAROS_ENTRY = 11502;
+    constexpr uint32 RAGNAROS_SON_ENTRY = 12143;
+    constexpr uint32 RAGNAROS_FLAME_ENTRY = 13148;
+    constexpr float RAGNAROS_ROOM_RANGE = 80.0f;
+    constexpr float RAGNAROS_FLOOR_ABOVE = 4.0f;
+    constexpr float RAGNAROS_RANGED_RING = 35.0f;
+    constexpr float RAGNAROS_SLOT_TOLERANCE = 4.0f;
+    constexpr float RAGNAROS_FLAME_RANGE = 13.0f;
+
+    Creature* FindRagnaros(Player* bot)
+    {
+        if (!bot || !bot->IsInWorld() || bot->GetMapId() != 409)
+            return nullptr;
+
+        std::list<Unit*> units;
+        MaNGOS::AllCreaturesOfEntryInRangeCheck check(bot, RAGNAROS_ENTRY, RAGNAROS_ROOM_RANGE);
+        MaNGOS::UnitListSearcher<MaNGOS::AllCreaturesOfEntryInRangeCheck> searcher(units, check);
+        Cell::VisitAllObjects(bot, searcher, RAGNAROS_ROOM_RANGE);
+
+        Creature* nearest = nullptr;
+        float nearestDistance = RAGNAROS_ROOM_RANGE;
+        for (Unit* unit : units)
+        {
+            Creature* creature = (Creature*)unit;
+            if (!creature || !creature->IsAlive())
+                continue;
+
+            float const distance = bot->GetDistance(creature);
+            if (distance <= nearestDistance)
+            {
+                nearestDistance = distance;
+                nearest = creature;
+            }
+        }
+
+        return nearest;
+    }
+
+    bool BossSubmerged(Creature* boss)
+    {
+        return boss && boss->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_UNINTERACTIBLE);
+    }
+
+    bool AboveFloor(Player* bot, Creature* boss)
+    {
+        return bot->GetPositionZ() > boss->GetPositionZ() + RAGNAROS_FLOOR_ABOVE;
+    }
+
+    float InnerRing(Creature* boss)
+    {
+        float radius = boss->GetCombatReach() + 3.0f;
+        if (radius < 12.0f)
+            radius = 12.0f;
+        if (radius > 20.0f)
+            radius = 20.0f;
+        return radius;
+    }
+
+    bool OnInnerRing(PlayerbotAI* ai, Player* bot)
+    {
+        return ai->IsTank(bot) || (!ai->IsRanged(bot) && !ai->IsHeal(bot));
+    }
+
+    float PlaceZ(Creature* boss, float x, float y)
+    {
+        float const floor = boss->GetPositionZ();
+        WorldPosition point(boss->GetMapId(), x, y, floor + 2.0f);
+        float const height = point.getHeight();
+        if (height > floor + RAGNAROS_FLOOR_ABOVE || height < floor - 5.0f)
+            return floor + 1.0f;
+        return height;
+    }
+
+    void ListRoomMembers(Player* bot, Creature* boss, std::vector<Player*>& out)
+    {
+        auto consider = [&](Player* member)
+        {
+            if (!member || !member->IsInWorld() || !member->IsAlive() || member->IsBeingTeleported())
+                return;
+            if (member->GetMapId() != bot->GetMapId())
+                return;
+            if (member != bot && member->GetDistance(boss) > RAGNAROS_ROOM_RANGE)
+                return;
+            out.push_back(member);
+        };
+
+        if (Group* group = bot->GetGroup())
+        {
+            for (GroupReference* gref = group->GetFirstMember(); gref; gref = gref->next())
+                consider(gref->getSource());
+        }
+        else
+            consider(bot);
+
+        std::sort(out.begin(), out.end(), [](Player* a, Player* b) { return a->GetGUIDLow() < b->GetGUIDLow(); });
+        out.erase(std::unique(out.begin(), out.end()), out.end());
+    }
+
+    bool ComputeRingPoint(Player* bot, float& x, float& y, float& z)
+    {
+        Creature* boss = FindRagnaros(bot);
+        if (!boss)
+            return false;
+
+        PlayerbotAI* ai = bot->GetPlayerbotAI();
+        std::vector<Player*> members;
+        ListRoomMembers(bot, boss, members);
+        if (members.empty())
+            members.push_back(bot);
+
+        uint32 index = 0;
+        for (; index < members.size(); ++index)
+        {
+            if (members[index] == bot)
+                break;
+        }
+        if (index >= members.size())
+            index = 0;
+
+        float const angle = (index + 0.5f) * 2.0f * M_PI_F / members.size();
+        float const radius = (ai && OnInnerRing(ai, bot)) ? InnerRing(boss) : RAGNAROS_RANGED_RING;
+        x = boss->GetPositionX() + cos(angle) * radius;
+        y = boss->GetPositionY() + sin(angle) * radius;
+        z = PlaceZ(boss, x, y);
+        return true;
+    }
+
+    std::vector<Creature*> ListSons(PlayerbotAI* ai)
+    {
+        std::vector<Creature*> sons;
+        AiObjectContext* context = ai->GetAiObjectContext();
+        std::list<ObjectGuid> possibleTargets = AI_VALUE(std::list<ObjectGuid>, "possible attack targets");
+        for (const ObjectGuid& guid : possibleTargets)
+        {
+            Unit* unit = ai->GetUnit(guid);
+            if (!unit || !unit->IsAlive() || unit->GetTypeId() != TYPEID_UNIT || unit->GetEntry() != RAGNAROS_SON_ENTRY)
+                continue;
+            sons.push_back((Creature*)unit);
+        }
+
+        std::sort(sons.begin(), sons.end(), [](Creature* a, Creature* b) { return a->GetGUIDLow() < b->GetGUIDLow(); });
+        return sons;
+    }
+
+    std::vector<Player*> ListSonTanks(PlayerbotAI* ai, Player* bot, Creature* boss)
+    {
+        std::vector<Player*> tanks;
+        bool const submerged = BossSubmerged(boss);
+        auto consider = [&](Player* member)
+        {
+            if (!member || !member->IsInWorld() || !member->IsAlive() || member->GetMapId() != bot->GetMapId())
+                return;
+            if (!ai->IsTank(member))
+                return;
+            if (!submerged && ai->GetMainTank() == member)
+                return;
+            tanks.push_back(member);
+        };
+
+        if (Group* group = bot->GetGroup())
+        {
+            for (GroupReference* gref = group->GetFirstMember(); gref; gref = gref->next())
+                consider(gref->getSource());
+        }
+        else
+            consider(bot);
+
+        std::sort(tanks.begin(), tanks.end(), [](Player* a, Player* b) { return a->GetGUIDLow() < b->GetGUIDLow(); });
+        tanks.erase(std::unique(tanks.begin(), tanks.end()), tanks.end());
+        return tanks;
+    }
+
+    Creature* SelectSonToTank(PlayerbotAI* ai, Player* bot)
+    {
+        Creature* boss = FindRagnaros(bot);
+        if (!boss)
+            return nullptr;
+        if (!BossSubmerged(boss) && ai->GetMainTank() == bot)
+            return nullptr;
+
+        std::vector<Creature*> sons = ListSons(ai);
+        if (sons.empty())
+            return nullptr;
+
+        std::vector<Creature*> loose;
+        std::vector<Creature*> rest;
+        for (Creature* son : sons)
+        {
+            Unit* victim = son->GetVictim();
+            if (victim && victim->GetTypeId() == TYPEID_PLAYER && !ai->IsTank((Player*)victim))
+                loose.push_back(son);
+            else
+                rest.push_back(son);
+        }
+
+        std::vector<Creature*> pool = loose;
+        pool.insert(pool.end(), rest.begin(), rest.end());
+
+        for (Creature* son : pool)
+        {
+            if (son->GetVictim() == bot)
+                return son;
+        }
+
+        std::vector<Creature*> open;
+        for (Creature* son : pool)
+        {
+            Unit* victim = son->GetVictim();
+            if (victim && victim->GetTypeId() == TYPEID_PLAYER && ai->IsTank((Player*)victim))
+                continue;
+            open.push_back(son);
+        }
+        if (open.empty())
+            return nullptr;
+
+        std::vector<Player*> freeTanks;
+        for (Player* tank : ListSonTanks(ai, bot, boss))
+        {
+            bool holding = false;
+            for (Creature* son : pool)
+            {
+                if (son->GetVictim() == tank)
+                    holding = true;
+            }
+            if (!holding)
+                freeTanks.push_back(tank);
+        }
+        if (freeTanks.empty())
+            return open.front();
+
+        uint32 index = 0;
+        for (; index < freeTanks.size(); ++index)
+        {
+            if (freeTanks[index] == bot)
+                break;
+        }
+        if (index >= freeTanks.size())
+            return nullptr;
+
+        return open[index % open.size()];
+    }
+
+    bool DangerPoint(PlayerbotAI* ai, Player* bot, float& dangerX, float& dangerY, float& dangerRange)
+    {
+        if (Creature* flame = FindNearestCreatureOfEntries(bot, {RAGNAROS_FLAME_ENTRY}))
+        {
+            if (bot->GetDistance(flame) <= RAGNAROS_FLAME_RANGE)
+            {
+                dangerX = flame->GetPositionX();
+                dangerY = flame->GetPositionY();
+                dangerRange = RAGNAROS_FLAME_RANGE;
+                return true;
+            }
+        }
+
+        AiObjectContext* context = ai->GetAiObjectContext();
+        const std::list<HazardPosition>& hazards = AI_VALUE(std::list<HazardPosition>, "hazards");
+        const HazardPosition* closest = nullptr;
+        float closestDistance = 9999.0f;
+        for (const HazardPosition& hazard : hazards)
+        {
+            float const distance = bot->GetDistance(hazard.first.getX(), hazard.first.getY(), hazard.first.getZ());
+            if (distance < closestDistance)
+            {
+                closestDistance = distance;
+                closest = &hazard;
+            }
+        }
+
+        if (closest && closestDistance <= closest->second)
+        {
+            dangerX = closest->first.getX();
+            dangerY = closest->first.getY();
+            dangerRange = closest->second;
+            return true;
+        }
+
+        return false;
+    }
+
+    float StopRangeFor(PlayerbotAI* ai, Player* bot)
+    {
+        if (ai->IsRanged(bot) || ai->IsHeal(bot))
+            return 28.0f;
+        return 6.0f;
+    }
+
+    float WrapAngle(float delta)
+    {
+        while (delta > M_PI_F)
+            delta -= 2.0f * M_PI_F;
+        while (delta < -M_PI_F)
+            delta += 2.0f * M_PI_F;
+        return delta;
+    }
+
+    // The straight segment passes through the lava around Ragnaros.
+    bool SegmentHitsLava(float x1, float y1, float x2, float y2, float cx, float cy, float radius)
+    {
+        float const vx = x2 - x1;
+        float const vy = y2 - y1;
+        float const len2 = vx * vx + vy * vy;
+        float t = len2 > 0.01f ? ((cx - x1) * vx + (cy - y1) * vy) / len2 : 0.0f;
+        if (t < 0.0f)
+            t = 0.0f;
+        if (t > 1.0f)
+            t = 1.0f;
+
+        float const px = x1 + vx * t - cx;
+        float const py = y1 + vy * t - cy;
+        return px * px + py * py < radius * radius;
+    }
+
+    bool ApproachPoint(Player* bot, Creature* boss, Unit* target, float stopRange, float& x, float& y, float& z)
+    {
+        float dx = bot->GetPositionX() - target->GetPositionX();
+        float dy = bot->GetPositionY() - target->GetPositionY();
+        float dist = sqrt(dx * dx + dy * dy);
+        if (dist < 1.0f)
+        {
+            dx = bot->GetPositionX() - boss->GetPositionX();
+            dy = bot->GetPositionY() - boss->GetPositionY();
+            dist = sqrt(dx * dx + dy * dy);
+            if (dist < 1.0f)
+                dist = 1.0f;
+        }
+
+        x = target->GetPositionX() + dx / dist * stopRange;
+        y = target->GetPositionY() + dy / dist * stopRange;
+
+        float const fromCenterX = x - boss->GetPositionX();
+        float const fromCenterY = y - boss->GetPositionY();
+        float const fromCenter = sqrt(fromCenterX * fromCenterX + fromCenterY * fromCenterY);
+        float const inner = InnerRing(boss);
+        if (fromCenter < inner && fromCenter > 0.5f)
+        {
+            float const scale = inner / fromCenter;
+            x = boss->GetPositionX() + fromCenterX * scale;
+            y = boss->GetPositionY() + fromCenterY * scale;
+        }
+
+        z = PlaceZ(boss, x, y);
+        return true;
+    }
+
+    // Walk the arc outside the lava. A chord to a Son of Flame on the far side cuts through the pit.
+    void NextPlatformPoint(Player* bot, Creature* boss, float destX, float destY, float& x, float& y, float& z)
+    {
+        float const cx = boss->GetPositionX();
+        float const cy = boss->GetPositionY();
+        float const bx = bot->GetPositionX();
+        float const by = bot->GetPositionY();
+        float const inner = InnerRing(boss);
+
+        if (!SegmentHitsLava(bx, by, destX, destY, cx, cy, inner))
+        {
+            x = destX;
+            y = destY;
+            z = PlaceZ(boss, x, y);
+            return;
+        }
+
+        float const botAngle = atan2(by - cy, bx - cx);
+        float const destAngle = atan2(destY - cy, destX - cx);
+        float const delta = WrapAngle(destAngle - botAngle);
+        float const step = 0.45f;
+        float const turn = fabs(delta) < step ? delta : (delta > 0.0f ? step : -step);
+
+        float radius = sqrt((bx - cx) * (bx - cx) + (by - cy) * (by - cy));
+        if (radius < inner)
+            radius = inner;
+        if (radius > 40.0f)
+            radius = 40.0f;
+
+        if (fabs(delta) < 0.35f)
+        {
+            float destRadius = sqrt((destX - cx) * (destX - cx) + (destY - cy) * (destY - cy));
+            if (destRadius < inner)
+                destRadius = inner;
+            if (destRadius > 40.0f)
+                destRadius = 40.0f;
+            radius = destRadius;
+        }
+
+        x = cx + cos(botAngle + turn) * radius;
+        y = cy + sin(botAngle + turn) * radius;
+        z = PlaceZ(boss, x, y);
+    }
+}
+
+namespace ai
+{
+    Creature* FindRagnarosPlatformBoss(Player* bot)
+    {
+        return FindRagnaros(bot);
+    }
+
+    bool BotInRagnarosRoom(Player* bot)
+    {
+        return FindRagnaros(bot) != nullptr;
+    }
+
+    bool RagnarosBotAboveFloor(Player* bot)
+    {
+        Creature* boss = FindRagnaros(bot);
+        return boss && AboveFloor(bot, boss);
+    }
+
+    bool RagnarosRingPoint(Player* bot, float& x, float& y, float& z)
+    {
+        return ComputeRingPoint(bot, x, y, z);
+    }
+
+    bool TryRagnarosRingLanding(Player* bot, float& x, float& y, float& z)
+    {
+        return ComputeRingPoint(bot, x, y, z);
+    }
+
+    Creature* FindRagnarosSonToTank(PlayerbotAI* ai)
+    {
+        Player* bot = ai->GetBot();
+        if (!bot || !ai->IsTank(bot))
+            return nullptr;
+        return SelectSonToTank(ai, bot);
+    }
+
+    bool RagnarosSonsAlive(PlayerbotAI* ai)
+    {
+        return !ListSons(ai).empty();
+    }
+}
+
+bool RagnarosSpreadAction::isUseful()
+{
+    Creature* boss = FindRagnarosPlatformBoss(bot);
+    if (!boss)
+        return false;
+
+    // Chasing a Son of Flame owns the movement. Healers, and tanks with nothing left to hold, stay on the ring.
+    if (RagnarosSonsAlive(ai) && !ai->IsHeal(bot))
+    {
+        if (!ai->IsTank(bot) || FindRagnarosSonToTank(ai))
+            return false;
+    }
+
+    if (RagnarosBotAboveFloor(bot))
+        return true;
+
+    float x, y, z;
+    if (!RagnarosRingPoint(bot, x, y, z))
+        return false;
+
+    float const dx = bot->GetPositionX() - x;
+    float const dy = bot->GetPositionY() - y;
+    return dx * dx + dy * dy > RAGNAROS_SLOT_TOLERANCE * RAGNAROS_SLOT_TOLERANCE;
+}
+
+bool RagnarosSpreadAction::Execute(Event& /*event*/)
+{
+    Creature* boss = FindRagnarosPlatformBoss(bot);
+    float x, y, z;
+    if (!boss || !RagnarosRingPoint(bot, x, y, z))
+        return false;
+
+    if (RagnarosBotAboveFloor(bot))
+    {
+        ai->StopMoving();
+        return bot->TeleportTo(bot->GetMapId(), x, y, z, bot->GetAngle(boss));
+    }
+
+    float stepX, stepY, stepZ;
+    NextPlatformPoint(bot, boss, x, y, stepX, stepY, stepZ);
+    return MoveTo(bot->GetMapId(), stepX, stepY, stepZ, false, false, true, true);
+}
+
+bool RagnarosStepAsideAction::isUseful()
+{
+    if (!BotInRagnarosRoom(bot))
+        return false;
+
+    float dangerX, dangerY, dangerRange;
+    return DangerPoint(ai, bot, dangerX, dangerY, dangerRange);
+}
+
+bool RagnarosStepAsideAction::Execute(Event& /*event*/)
+{
+    Creature* boss = FindRagnarosPlatformBoss(bot);
+    float dangerX, dangerY, dangerRange;
+    if (!boss || !DangerPoint(ai, bot, dangerX, dangerY, dangerRange))
+        return false;
+
+    float const dx = bot->GetPositionX() - boss->GetPositionX();
+    float const dy = bot->GetPositionY() - boss->GetPositionY();
+    float radius = sqrt(dx * dx + dy * dy);
+    if (radius < 12.0f)
+        radius = 12.0f;
+    if (radius > 40.0f)
+        radius = 40.0f;
+
+    float const angle = atan2(dy, dx);
+    float bestX = bot->GetPositionX();
+    float bestY = bot->GetPositionY();
+    float bestDistance = -1.0f;
+    for (float turn : { 0.8f, -0.8f, 1.6f, -1.6f })
+    {
+        float const x = boss->GetPositionX() + cos(angle + turn) * radius;
+        float const y = boss->GetPositionY() + sin(angle + turn) * radius;
+        float const ddx = x - dangerX;
+        float const ddy = y - dangerY;
+        float const distance = sqrt(ddx * ddx + ddy * ddy);
+        if (distance > bestDistance)
+        {
+            bestDistance = distance;
+            bestX = x;
+            bestY = y;
+        }
+    }
+
+    float const z = PlaceZ(boss, bestX, bestY);
+    if (AboveFloor(bot, boss))
+    {
+        ai->StopMoving();
+        return bot->TeleportTo(bot->GetMapId(), bestX, bestY, z, bot->GetAngle(boss));
+    }
+
+    return MoveTo(bot->GetMapId(), bestX, bestY, z, false, true, true, true);
+}
+
+bool AttackRagnarosBossAction::isUseful()
+{
+    if (ai->GetMainTank() != bot)
+        return false;
+
+    Creature* boss = FindRagnarosPlatformBoss(bot);
+    if (!boss || BossSubmerged(boss))
+        return false;
+
+    if (RagnarosBotAboveFloor(bot))
+        return true;
+
+    if (!boss->CanReachWithMeleeAttack(bot))
+        return true;
+
+    Unit* target = ai->GetUnit(AI_VALUE(ObjectGuid, "current target"));
+    return target != boss;
+}
+
+bool AttackRagnarosBossAction::Execute(Event& event)
+{
+    Creature* boss = FindRagnarosPlatformBoss(bot);
+    if (!boss)
+        return false;
+
+    if (RagnarosBotAboveFloor(bot))
+    {
+        float x, y, z;
+        if (!RagnarosRingPoint(bot, x, y, z))
+            return false;
+
+        ai->StopMoving();
+        return bot->TeleportTo(bot->GetMapId(), x, y, z, bot->GetAngle(boss));
+    }
+
+    if (!boss->CanReachWithMeleeAttack(bot))
+    {
+        float x, y, z;
+        if (!RagnarosRingPoint(bot, x, y, z))
+            return false;
+
+        float const dx = bot->GetPositionX() - x;
+        float const dy = bot->GetPositionY() - y;
+        if (dx * dx + dy * dy > RAGNAROS_SLOT_TOLERANCE * RAGNAROS_SLOT_TOLERANCE)
+        {
+            float stepX, stepY, stepZ;
+            NextPlatformPoint(bot, boss, x, y, stepX, stepY, stepZ);
+            return MoveTo(bot->GetMapId(), stepX, stepY, stepZ, false, false, true, true);
+        }
+    }
+
+    Player* requester = event.getOwner() ? event.getOwner() : GetMaster();
+    return Attack(requester, boss);
+}
+
+bool AttackRagnarosSonAction::isUseful()
+{
+    if (ai->IsHeal(bot))
+        return false;
+
+    Creature* son = ai->IsTank(bot) ? FindRagnarosSonToTank(ai) : FindAdd();
+    if (!son)
+        return false;
+
+    Creature* boss = FindRagnarosPlatformBoss(bot);
+    if (boss && AboveFloor(bot, boss))
+        return true;
+
+    if (bot->GetDistance2d(son->GetPositionX(), son->GetPositionY()) > StopRangeFor(ai, bot))
+        return true;
+
+    Unit* target = ai->GetUnit(AI_VALUE(ObjectGuid, "current target"));
+    return target != son;
+}
+
+bool AttackRagnarosSonAction::Execute(Event& event)
+{
+    Creature* son = ai->IsTank(bot) ? FindRagnarosSonToTank(ai) : FindAdd();
+    Creature* boss = FindRagnarosPlatformBoss(bot);
+    if (!son || !boss)
+        return false;
+
+    float const stop = StopRangeFor(ai, bot);
+    if (AboveFloor(bot, boss) || bot->GetDistance2d(son->GetPositionX(), son->GetPositionY()) > stop)
+    {
+        float x, y, z;
+        if (!ApproachPoint(bot, boss, son, stop, x, y, z))
+            return false;
+
+        if (AboveFloor(bot, boss))
+        {
+            ai->StopMoving();
+            return bot->TeleportTo(bot->GetMapId(), x, y, z, bot->GetAngle(son));
+        }
+
+        float stepX, stepY, stepZ;
+        NextPlatformPoint(bot, boss, x, y, stepX, stepY, stepZ);
+        return MoveTo(bot->GetMapId(), stepX, stepY, stepZ, false, false, true, true);
+    }
+
+    Player* requester = event.getOwner() ? event.getOwner() : GetMaster();
+    return Attack(requester, son);
+}

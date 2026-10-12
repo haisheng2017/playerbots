@@ -461,27 +461,30 @@ void GarrFightStrategy::InitCombatMultipliers(std::list<Multiplier*>& multiplier
 
 void RagnarosFightStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
+    // Lava patches and the Might of Ragnaros flame: step along the ring.
+    triggers.push_back(new TriggerNode(
+        "ragnaros lava burst",
+        NextAction::array(0, new NextAction("ragnaros step aside", 110.0f), NULL)));
+    triggers.push_back(new TriggerNode(
+        "ragnaros flame near",
+        NextAction::array(0, new NextAction("ragnaros step aside", 110.0f), NULL)));
+
+    // Sons of Flame, including the main tank once Ragnaros has submerged.
+    // Straight line on the platform, above the ring so a tank leaves the slot to pick one up.
+    triggers.push_back(new TriggerNode(
+        "ragnaros son target",
+        NextAction::array(0, new NextAction("attack ragnaros son", 104.0f), NULL)));
+
+    // Spread around the boss on the floor. Rocks teleport back down to the slot.
+    triggers.push_back(new TriggerNode(
+        "ragnaros spread",
+        NextAction::array(0, new NextAction("ragnaros spread", 102.0f), NULL)));
+
     // Magma Blast: nobody in melee range means random players eat ~6k fire every
     // 2.5s - pull the main tank back whenever he slipped off (e.g. knocked away)
     triggers.push_back(new TriggerNode(
         "ragnaros main tank off boss",
         NextAction::array(0, new NextAction("attack ragnaros boss", 100.0f), NULL)));
-
-    // Sons of Flame: the raid (off-tanks included) kills them within the 90s
-    // submerge window; the warlocks banish their share
-    triggers.push_back(new TriggerNode(
-        "ragnaros son target",
-        NextAction::array(0, new NextAction("attack ragnaros son", 100.0f), NULL)));
-
-    Player* bot = ai->GetBot();
-    if (ai->IsRanged(bot) || ai->IsHeal(bot))
-    {
-        // Stay out of the boss's reach: while emerged he hurls everyone around
-        // himself into the air (Wrath of Ragnaros) every 25-30s
-        triggers.push_back(new TriggerNode(
-            "ragnaros too close",
-            NextAction::array(0, new NextAction("move away from ragnaros", 100.0f), NULL)));
-    }
 }
 
 void RagnarosFightStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
@@ -504,23 +507,46 @@ void RagnarosFightStrategy::InitDeadTriggers(std::list<TriggerNode*>& triggers)
 
 void RagnarosFightStrategy::InitReactionTriggers(std::list<TriggerNode*>& triggers)
 {
-    // Lava Burst scatters fire patches all over the platform
+    // Lava Burst and the flame: step along the ring, same as in combat.
     triggers.push_back(new TriggerNode(
         "ragnaros lava burst",
-        NextAction::array(0, new NextAction("move away from hazard", 100.0f), NULL)));
+        NextAction::array(0, new NextAction("ragnaros step aside", 110.0f), NULL)));
 
-    // The flame dropped on a random mana user hits ~2000 fire damage around itself
     triggers.push_back(new TriggerNode(
         "ragnaros flame near",
-        NextAction::array(0, new NextAction("move away from ragnaros flame", 100.0f), NULL)));
+        NextAction::array(0, new NextAction("ragnaros step aside", 110.0f), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "ragnaros spread",
+        NextAction::array(0, new NextAction("ragnaros spread", 102.0f), NULL)));
+}
+
+namespace
+{
+    // Combat chase in this room is the ring and the straight-line son/boss walk.
+    // Generic reach would search the rock navmesh every tick.
+    class RagnarosPlatformMultiplier : public Multiplier
+    {
+    public:
+        RagnarosPlatformMultiplier(PlayerbotAI* ai) : Multiplier(ai, "ragnaros platform") {}
+
+        float GetValue(ai::Action* action) override
+        {
+            if (!action)
+                return 1.0f;
+
+            const std::string& name = action->getName();
+            if (name == "reach melee" || name == "reach spell" ||
+                name == "move away from ragnaros" || name == "move away from ragnaros flame" ||
+                name == "move away from hazard")
+                return 0.0f;
+
+            return 1.0f;
+        }
+    };
 }
 
 void RagnarosFightStrategy::InitCombatMultipliers(std::list<Multiplier*>& multipliers)
 {
-    Player* bot = ai->GetBot();
-    if (ai->IsRanged(bot) || ai->IsHeal(bot))
-    {
-        // The 30y keep-away must not fight the cast-approach of the ranged/healers
-        multipliers.push_back(new PreventMoveAwayFromCreatureOnReachToCastMultiplier(ai));
-    }
+    multipliers.push_back(new RagnarosPlatformMultiplier(ai));
 }
