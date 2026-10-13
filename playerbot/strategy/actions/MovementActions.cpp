@@ -2688,7 +2688,7 @@ bool MovementAction::ChaseTo(WorldObject* obj, float distance, float angle)
         Unit* target = static_cast<Unit*>(obj);
         Stance* stance = AI_VALUE(Stance*, "stance");
 
-        if (stance && stance->getName() != "turnback")
+        if (stance)
         {
             WorldLocation stanceLoc = stance->GetLocation();
 
@@ -2783,8 +2783,9 @@ bool MovementAction::ChaseTo(WorldObject* obj, float distance, float angle)
     if (bot->GetMotionMaster()->GetCurrentMovementGeneratorType() == CHASE_MOTION_TYPE)
     {
         if (!bot->IsStopped() &&
-            sServerFacade.GetChaseTarget(bot) == obj && 
-            sServerFacade.GetChaseOffset(bot) == distance)
+            sServerFacade.GetChaseTarget(bot) == obj &&
+            sServerFacade.GetChaseOffset(bot) == distance &&
+            sServerFacade.GetChaseAngle(bot) == angle)
         {
             bot->SetTarget(obj); //Needed to keep chase going in combat.
             bot->Attack((Unit*)obj, false); //Needed to keep chase going in combat.
