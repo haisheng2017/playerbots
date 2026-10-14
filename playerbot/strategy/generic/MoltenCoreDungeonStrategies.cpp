@@ -536,7 +536,9 @@ namespace
                 return 1.0f;
 
             const std::string& name = action->getName();
-            if (name == "reach melee" || name == "reach spell" ||
+            // Standing on the ring is a teleport. Walking from here steps into the lava
+            // and keeps issuing a new spline every tick.
+            if (name == "reach melee" || name == "reach spell" || name == "follow" || name == "flee" ||
                 name == "move away from ragnaros" || name == "move away from ragnaros flame" ||
                 name == "move away from hazard")
                 return 0.0f;

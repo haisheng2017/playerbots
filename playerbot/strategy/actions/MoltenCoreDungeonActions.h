@@ -367,7 +367,7 @@ namespace ai
         RagnarosMoveAwayFromFlameAction(PlayerbotAI* ai) : MoveAwayFromCreature(ai, "move away from ragnaros flame", 13148, 13.0f) {}
     };
 
-    // Hold a slot on the platform ring. A bot already up on a rock is teleported down.
+    // Walk along the dry spiral to a spread slot. Lava, a pillar, or a long fall off the line teleports.
     class RagnarosSpreadAction : public MovementAction
     {
     public:
@@ -376,7 +376,7 @@ namespace ai
         bool isUseful() override;
     };
 
-    // Step along the ring, away from a lava patch or a flame. No navmesh search.
+    // Walk along the spiral, away from a lava patch or a flame. No navmesh search.
     class RagnarosStepAsideAction : public MovementAction
     {
     public:
@@ -387,7 +387,7 @@ namespace ai
 
     // The main tank's pull back onto Ragnaros: he is rooted but nukes random
     // players whenever nobody stood in his melee range long enough.
-    // The walk is a straight line on the platform.
+    // Getting onto the spiral is the spread walk; this only swings once he is there.
     class AttackRagnarosBossAction : public AttackBossEntryAction
     {
     public:

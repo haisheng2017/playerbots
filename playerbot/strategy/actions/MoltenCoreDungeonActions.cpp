@@ -4,6 +4,7 @@
 #include "Maps/GridMap.h"
 #include <algorithm>
 #include <cmath>
+#include <map>
 #include "playerbot/strategy/values/PositionValue.h"
 #include "playerbot/strategy/values/GuidPositionValues.h"
 #include "playerbot/strategy/AiObjectContext.h"
@@ -1041,8 +1042,6 @@ namespace
     constexpr uint32 RAGNAROS_FLAME_ENTRY = 13148;
     constexpr float RAGNAROS_ROOM_RANGE = 80.0f;
     constexpr float RAGNAROS_FLOOR_ABOVE = 4.0f;
-    constexpr float RAGNAROS_RANGED_RING = 35.0f;
-    constexpr float RAGNAROS_SLOT_TOLERANCE = 4.0f;
     constexpr float RAGNAROS_FLAME_RANGE = 13.0f;
 
     Creature* FindRagnaros(Player* bot)
@@ -1079,19 +1078,220 @@ namespace
         return boss && boss->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_UNINTERACTIBLE);
     }
 
-    bool AboveFloor(Player* bot, Creature* boss)
+    // Floor height of the fight platform. Rock pillars and the entrance shelf sit above this.
+    constexpr float RAGNAROS_FLOOR_Z = -229.6f;
+
+    // Dry floor measured from mmaps/4093033.mmtile around the scripted spawn (838.31, -831.47).
+    // Index i is i * 10 degrees from +X. The lava pool is a spiral, so the safe radius changes
+    // with angle. inner == 0 is the cut where that arm is only lava (about 120 to 160 degrees).
+    struct SpiralSample
     {
-        return bot->GetPositionZ() > boss->GetPositionZ() + RAGNAROS_FLOOR_ABOVE;
+        float inner;
+        float outer;
+        float z;
+    };
+
+    SpiralSample const RAGNAROS_SPIRAL[36] =
+    {
+        {8.0f, 30.5f, -229.5f}, {8.0f, 29.0f, -229.5f}, {8.0f, 28.5f, -229.5f}, {8.0f, 32.5f, -229.5f},
+        {8.0f, 32.0f, -229.5f}, {8.0f, 28.0f, -229.5f}, {8.0f, 24.5f, -229.5f}, {8.0f, 23.0f, -229.5f},
+        {8.0f, 23.0f, -229.5f}, {8.0f, 42.0f, -229.5f}, {26.0f, 40.0f, -229.9f}, {29.5f, 44.5f, -228.8f},
+        {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f},
+        {17.5f, 27.0f, -229.1f}, {18.0f, 31.5f, -229.1f}, {20.0f, 35.0f, -229.5f}, {19.5f, 35.5f, -229.9f},
+        {20.0f, 38.0f, -229.6f}, {19.0f, 33.5f, -230.1f}, {19.0f, 35.5f, -230.1f}, {23.0f, 34.0f, -228.8f},
+        {20.5f, 33.5f, -229.2f}, {18.5f, 32.0f, -229.7f}, {18.5f, 32.0f, -229.1f}, {18.0f, 34.0f, -229.1f},
+        {16.5f, 35.0f, -229.1f}, {25.5f, 35.5f, -228.6f}, {8.5f, 35.5f, -230.0f}, {8.0f, 34.0f, -230.0f},
+        {8.0f, 33.0f, -230.0f}, {8.0f, 32.0f, -230.0f}, {8.0f, 31.0f, -230.0f}
+    };
+
+    struct SpiralNode
+    {
+        float angle;
+        float inner;
+        float outer;
+        float radius;
+        float z;
+    };
+
+    struct SpiralChain
+    {
+        SpiralNode nodes[36];
+        int count = 0;
+        float length = 0.0f;
+        float cum[36] = {};
+    };
+
+    float WrapAngle(float angle)
+    {
+        float const turn = 2.0f * M_PI_F;
+        angle = std::fmod(angle, turn);
+        if (angle < 0.0f)
+            angle += turn;
+        return angle;
     }
 
-    float InnerRing(Creature* boss)
+    float AngleDelta(float from, float to)
     {
-        float radius = boss->GetCombatReach() + 3.0f;
-        if (radius < 12.0f)
-            radius = 12.0f;
-        if (radius > 20.0f)
-            radius = 20.0f;
-        return radius;
+        float delta = WrapAngle(to) - WrapAngle(from);
+        if (delta > M_PI_F)
+            delta -= 2.0f * M_PI_F;
+        if (delta < -M_PI_F)
+            delta += 2.0f * M_PI_F;
+        return delta;
+    }
+
+    SpiralChain const& GetSpiralChain()
+    {
+        static SpiralChain chain;
+        static bool ready = false;
+        if (ready)
+            return chain;
+
+        ready = true;
+        int start = 0;
+        bool sawGap = false;
+        for (int i = 0; i < 36; ++i)
+        {
+            if (RAGNAROS_SPIRAL[i].inner <= 0.0f)
+                sawGap = true;
+            else if (sawGap)
+            {
+                start = i;
+                break;
+            }
+        }
+
+        int previous = -1;
+        for (int step = 0; step < 36; ++step)
+        {
+            int const index = (start + step) % 36;
+            SpiralSample const& sample = RAGNAROS_SPIRAL[index];
+            if (sample.inner <= 0.0f)
+                break;
+
+            float const radius = (sample.inner + sample.outer) * 0.5f;
+            if (previous >= 0 && fabs(radius - chain.nodes[chain.count - 1].radius) > 14.0f)
+                break;
+
+            SpiralNode& node = chain.nodes[chain.count];
+            node.angle = index * (10.0f * M_PI_F / 180.0f);
+            node.inner = sample.inner;
+            node.outer = sample.outer;
+            node.radius = radius;
+            node.z = sample.z;
+            if (chain.count == 0)
+                chain.cum[0] = 0.0f;
+            else
+            {
+                SpiralNode const& before = chain.nodes[chain.count - 1];
+                float const dx = cos(node.angle) * node.radius - cos(before.angle) * before.radius;
+                float const dy = sin(node.angle) * node.radius - sin(before.angle) * before.radius;
+                chain.length += sqrt(dx * dx + dy * dy);
+                chain.cum[chain.count] = chain.length;
+            }
+
+            ++chain.count;
+            previous = index;
+        }
+
+        sLog.outBasic("Ragnaros spiral stand line: %d dry samples, length %.0f, lava cut skipped",
+            chain.count, chain.length);
+        return chain;
+    }
+
+    void WriteSpiralPoint(Creature* boss, float angle, float radius, float pointZ, float& x, float& y, float& z)
+    {
+        x = boss->GetPositionX() + cos(angle) * radius;
+        y = boss->GetPositionY() + sin(angle) * radius;
+        z = pointZ;
+    }
+
+    // Stay inside the overlap of the two measured bands, then step melee toward the boss and ranged outward.
+    void RadiusOnSegment(SpiralNode const& from, SpiralNode const& to, float t, bool melee, float& radius, float& z)
+    {
+        float const low = std::max(from.inner, to.inner) + 2.5f;
+        float const high = std::min(from.outer, to.outer) - 2.5f;
+        float const center = from.radius + (to.radius - from.radius) * t;
+        z = from.z + (to.z - from.z) * t;
+        if (low > high)
+        {
+            radius = (std::max(from.inner, to.inner) + std::min(from.outer, to.outer)) * 0.5f;
+            return;
+        }
+
+        float const clamped = std::min(std::max(center, low), high);
+        radius = melee ? std::max(low, clamped - 4.0f) : std::min(high, clamped + 4.0f);
+    }
+
+    bool PointAlongSpiral(Creature* boss, float fraction, bool melee, float& x, float& y, float& z)
+    {
+        SpiralChain const& chain = GetSpiralChain();
+        if (chain.count < 2 || chain.length < 1.0f)
+            return false;
+
+        fraction = std::min(std::max(fraction, 0.0f), 0.999f);
+        float const target = fraction * chain.length;
+        int segment = 0;
+        for (; segment < chain.count - 2; ++segment)
+        {
+            if (chain.cum[segment + 1] >= target)
+                break;
+        }
+
+        float const span = chain.cum[segment + 1] - chain.cum[segment];
+        float const t = span > 0.1f ? (target - chain.cum[segment]) / span : 0.0f;
+        SpiralNode const& from = chain.nodes[segment];
+        SpiralNode const& to = chain.nodes[segment + 1];
+        float radius = 0.0f;
+        float pointZ = 0.0f;
+        RadiusOnSegment(from, to, t, melee, radius, pointZ);
+        float const angle = from.angle + AngleDelta(from.angle, to.angle) * t;
+        WriteSpiralPoint(boss, angle, radius, pointZ, x, y, z);
+        return true;
+    }
+
+    bool PointAtSpiralAngle(Creature* boss, float angle, bool melee, float& x, float& y, float& z)
+    {
+        SpiralChain const& chain = GetSpiralChain();
+        if (chain.count < 2)
+            return false;
+
+        angle = WrapAngle(angle);
+        for (int i = 0; i < chain.count - 1; ++i)
+        {
+            SpiralNode const& from = chain.nodes[i];
+            SpiralNode const& to = chain.nodes[i + 1];
+            float const span = AngleDelta(from.angle, to.angle);
+            float const along = AngleDelta(from.angle, angle);
+            if (span <= 0.0f || along < -0.01f || along > span + 0.01f)
+                continue;
+
+            float t = along / span;
+            if (t < 0.0f)
+                t = 0.0f;
+            if (t > 1.0f)
+                t = 1.0f;
+
+            float radius = 0.0f;
+            float pointZ = 0.0f;
+            RadiusOnSegment(from, to, t, melee, radius, pointZ);
+            WriteSpiralPoint(boss, from.angle + span * t, radius, pointZ, x, y, z);
+            return true;
+        }
+
+        SpiralNode const& first = chain.nodes[0];
+        SpiralNode const& last = chain.nodes[chain.count - 1];
+        SpiralNode const& nearest = fabs(AngleDelta(angle, first.angle)) <= fabs(AngleDelta(angle, last.angle)) ? first : last;
+        float const low = nearest.inner + 2.5f;
+        float const high = nearest.outer - 2.5f;
+        float const radius = low <= high ? (melee ? low : high) : nearest.radius;
+        WriteSpiralPoint(boss, nearest.angle, radius, nearest.z, x, y, z);
+        return true;
+    }
+
+    bool AboveFloor(Player* bot, Creature* /*boss*/)
+    {
+        return bot->GetPositionZ() > RAGNAROS_FLOOR_Z + RAGNAROS_FLOOR_ABOVE;
     }
 
     bool OnInnerRing(PlayerbotAI* ai, Player* bot)
@@ -1099,14 +1299,22 @@ namespace
         return ai->IsTank(bot) || (!ai->IsRanged(bot) && !ai->IsHeal(bot));
     }
 
-    float PlaceZ(Creature* boss, float x, float y)
+    bool OutOfSlot(Player* bot, float x, float y, float z)
     {
-        float const floor = boss->GetPositionZ();
-        WorldPosition point(boss->GetMapId(), x, y, floor + 2.0f);
-        float const height = point.getHeight();
-        if (height > floor + RAGNAROS_FLOOR_ABOVE || height < floor - 5.0f)
-            return floor + 1.0f;
-        return height;
+        if (fabs(bot->GetPositionZ() - z) > 3.0f)
+            return true;
+        if (PositionInMagma(WorldPosition(bot)))
+            return true;
+
+        float const dx = bot->GetPositionX() - x;
+        float const dy = bot->GetPositionY() - y;
+        return dx * dx + dy * dy > 9.0f;
+    }
+
+    bool TeleportOntoFloor(PlayerbotAI* ai, Player* bot, Unit* face, float x, float y, float z)
+    {
+        ai->StopMoving();
+        return bot->TeleportTo(bot->GetMapId(), x, y, z, face ? bot->GetAngle(face) : bot->GetOrientation());
     }
 
     void ListRoomMembers(Player* bot, Creature* boss, std::vector<Player*>& out)
@@ -1155,12 +1363,250 @@ namespace
         if (index >= members.size())
             index = 0;
 
-        float const angle = (index + 0.5f) * 2.0f * M_PI_F / members.size();
-        float const radius = (ai && OnInnerRing(ai, bot)) ? InnerRing(boss) : RAGNAROS_RANGED_RING;
-        x = boss->GetPositionX() + cos(angle) * radius;
-        y = boss->GetPositionY() + sin(angle) * radius;
-        z = PlaceZ(boss, x, y);
+        bool const melee = !ai || OnInnerRing(ai, bot);
+        float const fraction = (index + 0.5f) / float(members.size());
+        return PointAlongSpiral(boss, fraction, melee, x, y, z);
+    }
+
+    bool SonStandPoint(Player* bot, Unit* son, float& x, float& y, float& z)
+    {
+        Creature* boss = FindRagnaros(bot);
+        if (!boss)
+            return false;
+
+        float const angle = atan2(son->GetPositionY() - boss->GetPositionY(), son->GetPositionX() - boss->GetPositionX());
+        return PointAtSpiralAngle(boss, angle, true, x, y, z);
+    }
+
+    struct LineProjection
+    {
+        float arc = 0.0f;
+        float x = 0.0f;
+        float y = 0.0f;
+        float z = 0.0f;
+        float distance = 0.0f;
+    };
+
+    bool PointAtArc(Creature* boss, float arc, bool melee, float& x, float& y, float& z)
+    {
+        SpiralChain const& chain = GetSpiralChain();
+        if (chain.count < 2)
+            return false;
+
+        if (arc < 0.0f)
+            arc = 0.0f;
+        if (arc > chain.length)
+            arc = chain.length;
+
+        for (int i = 0; i < chain.count - 1; ++i)
+        {
+            if (i < chain.count - 2 && chain.cum[i + 1] < arc)
+                continue;
+
+            float const span = chain.cum[i + 1] - chain.cum[i];
+            float const t = span > 0.1f ? (arc - chain.cum[i]) / span : 0.0f;
+            float radius = 0.0f;
+            float pointZ = 0.0f;
+            RadiusOnSegment(chain.nodes[i], chain.nodes[i + 1], std::min(std::max(t, 0.0f), 1.0f), melee, radius, pointZ);
+            float const angle = chain.nodes[i].angle + AngleDelta(chain.nodes[i].angle, chain.nodes[i + 1].angle) * std::min(std::max(t, 0.0f), 1.0f);
+            WriteSpiralPoint(boss, angle, radius, pointZ, x, y, z);
+            return true;
+        }
+
+        return false;
+    }
+
+    bool ProjectOntoLine(Creature* boss, float x, float y, bool melee, LineProjection& hit)
+    {
+        SpiralChain const& chain = GetSpiralChain();
+        if (chain.count < 2)
+            return false;
+
+        hit.distance = 1.0e9f;
+        bool found = false;
+        for (int i = 0; i < chain.count - 1; ++i)
+        {
+            float const span = chain.cum[i + 1] - chain.cum[i];
+            for (int sample = 0; sample <= 4; ++sample)
+            {
+                float const t = sample / 4.0f;
+                float radius = 0.0f;
+                float pointZ = 0.0f;
+                RadiusOnSegment(chain.nodes[i], chain.nodes[i + 1], t, melee, radius, pointZ);
+                float const angle = chain.nodes[i].angle + AngleDelta(chain.nodes[i].angle, chain.nodes[i + 1].angle) * t;
+                float px = 0.0f;
+                float py = 0.0f;
+                float pz = 0.0f;
+                WriteSpiralPoint(boss, angle, radius, pointZ, px, py, pz);
+                float const dx = px - x;
+                float const dy = py - y;
+                float const distance = sqrt(dx * dx + dy * dy);
+                if (distance < hit.distance)
+                {
+                    hit.distance = distance;
+                    hit.x = px;
+                    hit.y = py;
+                    hit.z = pz;
+                    hit.arc = chain.cum[i] + t * span;
+                    found = true;
+                }
+            }
+        }
+
+        return found;
+    }
+
+    // In the lava, on a pillar, or far enough from the line that a straight step would cross the pool.
+    bool NeedsLineRescue(Player* bot, Creature* boss, bool melee)
+    {
+        if (PositionInMagma(WorldPosition(bot)))
+            return true;
+        if (AboveFloor(bot, boss))
+            return true;
+
+        LineProjection here;
+        if (!ProjectOntoLine(boss, bot->GetPositionX(), bot->GetPositionY(), melee, here))
+            return true;
+
+        return here.distance > 12.0f;
+    }
+
+    bool NextLinePoint(Creature* boss, Player* bot, float destX, float destY, float destZ, bool melee, float& x, float& y, float& z)
+    {
+        float const dx = bot->GetPositionX() - destX;
+        float const dy = bot->GetPositionY() - destY;
+        if (dx * dx + dy * dy <= 9.0f && fabs(bot->GetPositionZ() - destZ) <= 3.0f)
+            return false;
+
+        LineProjection here;
+        LineProjection dest;
+        if (!ProjectOntoLine(boss, bot->GetPositionX(), bot->GetPositionY(), melee, here))
+            return false;
+        if (!ProjectOntoLine(boss, destX, destY, melee, dest))
+            return false;
+
+        if (here.distance > 6.0f)
+        {
+            x = here.x;
+            y = here.y;
+            z = here.z;
+            return true;
+        }
+
+        float const step = 10.0f;
+        float const delta = dest.arc - here.arc;
+        if (fabs(delta) <= step)
+        {
+            x = destX;
+            y = destY;
+            z = destZ;
+            return true;
+        }
+
+        float targetArc = here.arc + (delta > 0.0f ? step : -step);
+        if (!PointAtArc(boss, targetArc, melee, x, y, z))
+            return false;
+
+        float const stepDx = bot->GetPositionX() - x;
+        float const stepDy = bot->GetPositionY() - y;
+        if (stepDx * stepDx + stepDy * stepDy < 6.25f)
+            return PointAtArc(boss, targetArc + (delta > 0.0f ? step : -step), melee, x, y, z);
+
         return true;
+    }
+
+    struct IssuedLineStep
+    {
+        float x = 0.0f;
+        float y = 0.0f;
+        float distance = 0.0f;
+        time_t when = 0;
+    };
+
+    std::map<uint32, IssuedLineStep>& LineSteps()
+    {
+        static std::map<uint32, IssuedLineStep> steps;
+        return steps;
+    }
+
+    // True while the last walk order is still the point we would issue, and the bot has not arrived or stuck.
+    bool HoldIssuedStep(Player* bot, float x, float y)
+    {
+        auto it = LineSteps().find(bot->GetGUIDLow());
+        if (it == LineSteps().end())
+            return false;
+
+        float const orderDx = it->second.x - x;
+        float const orderDy = it->second.y - y;
+        if (orderDx * orderDx + orderDy * orderDy > 16.0f)
+            return false;
+
+        float const dx = bot->GetPositionX() - x;
+        float const dy = bot->GetPositionY() - y;
+        float const distance = sqrt(dx * dx + dy * dy);
+        if (distance < 2.5f)
+            return false;
+
+        if (time(nullptr) >= it->second.when + 2 && distance > it->second.distance - 1.0f)
+            return false;
+
+        return true;
+    }
+
+    void RememberStep(Player* bot, float x, float y)
+    {
+        float const dx = bot->GetPositionX() - x;
+        float const dy = bot->GetPositionY() - y;
+        LineSteps()[bot->GetGUIDLow()] = { x, y, sqrt(dx * dx + dy * dy), time(nullptr) };
+    }
+
+    void ForgetStep(Player* bot)
+    {
+        LineSteps().erase(bot->GetGUIDLow());
+    }
+
+    enum class LineOrder
+    {
+        Stay,
+        Walk,
+        Rescue
+    };
+
+    struct LineStep
+    {
+        LineOrder order = LineOrder::Stay;
+        float x = 0.0f;
+        float y = 0.0f;
+        float z = 0.0f;
+    };
+
+    LineStep PlanLineStep(Player* bot, Creature* boss, float destX, float destY, float destZ, bool melee)
+    {
+        LineStep step;
+        step.x = destX;
+        step.y = destY;
+        step.z = destZ;
+
+        if (NeedsLineRescue(bot, boss, melee))
+        {
+            step.order = LineOrder::Rescue;
+            return step;
+        }
+
+        float x = 0.0f;
+        float y = 0.0f;
+        float z = 0.0f;
+        if (!NextLinePoint(boss, bot, destX, destY, destZ, melee, x, y, z))
+            return step;
+
+        if (HoldIssuedStep(bot, x, y))
+            return step;
+
+        step.order = LineOrder::Walk;
+        step.x = x;
+        step.y = y;
+        step.z = z;
+        return step;
     }
 
     std::vector<Creature*> ListSons(PlayerbotAI* ai)
@@ -1323,107 +1769,6 @@ namespace
         return 6.0f;
     }
 
-    float WrapAngle(float delta)
-    {
-        while (delta > M_PI_F)
-            delta -= 2.0f * M_PI_F;
-        while (delta < -M_PI_F)
-            delta += 2.0f * M_PI_F;
-        return delta;
-    }
-
-    // The straight segment passes through the lava around Ragnaros.
-    bool SegmentHitsLava(float x1, float y1, float x2, float y2, float cx, float cy, float radius)
-    {
-        float const vx = x2 - x1;
-        float const vy = y2 - y1;
-        float const len2 = vx * vx + vy * vy;
-        float t = len2 > 0.01f ? ((cx - x1) * vx + (cy - y1) * vy) / len2 : 0.0f;
-        if (t < 0.0f)
-            t = 0.0f;
-        if (t > 1.0f)
-            t = 1.0f;
-
-        float const px = x1 + vx * t - cx;
-        float const py = y1 + vy * t - cy;
-        return px * px + py * py < radius * radius;
-    }
-
-    bool ApproachPoint(Player* bot, Creature* boss, Unit* target, float stopRange, float& x, float& y, float& z)
-    {
-        float dx = bot->GetPositionX() - target->GetPositionX();
-        float dy = bot->GetPositionY() - target->GetPositionY();
-        float dist = sqrt(dx * dx + dy * dy);
-        if (dist < 1.0f)
-        {
-            dx = bot->GetPositionX() - boss->GetPositionX();
-            dy = bot->GetPositionY() - boss->GetPositionY();
-            dist = sqrt(dx * dx + dy * dy);
-            if (dist < 1.0f)
-                dist = 1.0f;
-        }
-
-        x = target->GetPositionX() + dx / dist * stopRange;
-        y = target->GetPositionY() + dy / dist * stopRange;
-
-        float const fromCenterX = x - boss->GetPositionX();
-        float const fromCenterY = y - boss->GetPositionY();
-        float const fromCenter = sqrt(fromCenterX * fromCenterX + fromCenterY * fromCenterY);
-        float const inner = InnerRing(boss);
-        if (fromCenter < inner && fromCenter > 0.5f)
-        {
-            float const scale = inner / fromCenter;
-            x = boss->GetPositionX() + fromCenterX * scale;
-            y = boss->GetPositionY() + fromCenterY * scale;
-        }
-
-        z = PlaceZ(boss, x, y);
-        return true;
-    }
-
-    // Walk the arc outside the lava. A chord to a Son of Flame on the far side cuts through the pit.
-    void NextPlatformPoint(Player* bot, Creature* boss, float destX, float destY, float& x, float& y, float& z)
-    {
-        float const cx = boss->GetPositionX();
-        float const cy = boss->GetPositionY();
-        float const bx = bot->GetPositionX();
-        float const by = bot->GetPositionY();
-        float const inner = InnerRing(boss);
-
-        if (!SegmentHitsLava(bx, by, destX, destY, cx, cy, inner))
-        {
-            x = destX;
-            y = destY;
-            z = PlaceZ(boss, x, y);
-            return;
-        }
-
-        float const botAngle = atan2(by - cy, bx - cx);
-        float const destAngle = atan2(destY - cy, destX - cx);
-        float const delta = WrapAngle(destAngle - botAngle);
-        float const step = 0.45f;
-        float const turn = fabs(delta) < step ? delta : (delta > 0.0f ? step : -step);
-
-        float radius = sqrt((bx - cx) * (bx - cx) + (by - cy) * (by - cy));
-        if (radius < inner)
-            radius = inner;
-        if (radius > 40.0f)
-            radius = 40.0f;
-
-        if (fabs(delta) < 0.35f)
-        {
-            float destRadius = sqrt((destX - cx) * (destX - cx) + (destY - cy) * (destY - cy));
-            if (destRadius < inner)
-                destRadius = inner;
-            if (destRadius > 40.0f)
-                destRadius = 40.0f;
-            radius = destRadius;
-        }
-
-        x = cx + cos(botAngle + turn) * radius;
-        y = cy + sin(botAngle + turn) * radius;
-        z = PlaceZ(boss, x, y);
-    }
 }
 
 namespace ai
@@ -1474,23 +1819,16 @@ bool RagnarosSpreadAction::isUseful()
     if (!boss)
         return false;
 
-    // Chasing a Son of Flame owns the movement. Healers, and tanks with nothing left to hold, stay on the ring.
-    if (RagnarosSonsAlive(ai) && !ai->IsHeal(bot))
-    {
-        if (!ai->IsTank(bot) || FindRagnarosSonToTank(ai))
-            return false;
-    }
-
-    if (RagnarosBotAboveFloor(bot))
-        return true;
+    // A tank with a Son of Flame teleports to that add's side of the ring instead of this slot.
+    if (ai->IsTank(bot) && RagnarosSonsAlive(ai) && FindRagnarosSonToTank(ai))
+        return false;
 
     float x, y, z;
     if (!RagnarosRingPoint(bot, x, y, z))
         return false;
 
-    float const dx = bot->GetPositionX() - x;
-    float const dy = bot->GetPositionY() - y;
-    return dx * dx + dy * dy > RAGNAROS_SLOT_TOLERANCE * RAGNAROS_SLOT_TOLERANCE;
+    bool const melee = OnInnerRing(ai, bot);
+    return PlanLineStep(bot, boss, x, y, z, melee).order != LineOrder::Stay;
 }
 
 bool RagnarosSpreadAction::Execute(Event& /*event*/)
@@ -1500,15 +1838,21 @@ bool RagnarosSpreadAction::Execute(Event& /*event*/)
     if (!boss || !RagnarosRingPoint(bot, x, y, z))
         return false;
 
-    if (RagnarosBotAboveFloor(bot))
+    bool const melee = OnInnerRing(ai, bot);
+    LineStep const step = PlanLineStep(bot, boss, x, y, z, melee);
+    if (step.order == LineOrder::Rescue)
     {
-        ai->StopMoving();
-        return bot->TeleportTo(bot->GetMapId(), x, y, z, bot->GetAngle(boss));
+        ForgetStep(bot);
+        return TeleportOntoFloor(ai, bot, boss, x, y, z);
     }
+    if (step.order != LineOrder::Walk)
+        return false;
 
-    float stepX, stepY, stepZ;
-    NextPlatformPoint(bot, boss, x, y, stepX, stepY, stepZ);
-    return MoveTo(bot->GetMapId(), stepX, stepY, stepZ, false, false, true, true);
+    if (!MoveTo(bot->GetMapId(), step.x, step.y, step.z, false, true, true, true))
+        return false;
+
+    RememberStep(bot, step.x, step.y);
+    return true;
 }
 
 bool RagnarosStepAsideAction::isUseful()
@@ -1517,7 +1861,43 @@ bool RagnarosStepAsideAction::isUseful()
         return false;
 
     float dangerX, dangerY, dangerRange;
-    return DangerPoint(ai, bot, dangerX, dangerY, dangerRange);
+    if (!DangerPoint(ai, bot, dangerX, dangerY, dangerRange))
+        return false;
+
+    Creature* boss = FindRagnarosPlatformBoss(bot);
+    if (!boss)
+        return false;
+
+    float bestX = bot->GetPositionX();
+    float bestY = bot->GetPositionY();
+    float bestZ = bot->GetPositionZ();
+    float bestDistance = -1.0f;
+    float const angle = atan2(bot->GetPositionY() - boss->GetPositionY(), bot->GetPositionX() - boss->GetPositionX());
+    bool const melee = OnInnerRing(ai, bot);
+    for (float turn : { 0.7f, -0.7f, 1.4f, -1.4f })
+    {
+        float x = 0.0f;
+        float y = 0.0f;
+        float z = 0.0f;
+        if (!PointAtSpiralAngle(boss, angle + turn, melee, x, y, z))
+            continue;
+
+        float const ddx = x - dangerX;
+        float const ddy = y - dangerY;
+        float const distance = sqrt(ddx * ddx + ddy * ddy);
+        if (distance > bestDistance)
+        {
+            bestDistance = distance;
+            bestX = x;
+            bestY = y;
+            bestZ = z;
+        }
+    }
+
+    if (bestDistance < 0.0f)
+        return false;
+
+    return PlanLineStep(bot, boss, bestX, bestY, bestZ, melee).order != LineOrder::Stay;
 }
 
 bool RagnarosStepAsideAction::Execute(Event& /*event*/)
@@ -1527,22 +1907,21 @@ bool RagnarosStepAsideAction::Execute(Event& /*event*/)
     if (!boss || !DangerPoint(ai, bot, dangerX, dangerY, dangerRange))
         return false;
 
-    float const dx = bot->GetPositionX() - boss->GetPositionX();
-    float const dy = bot->GetPositionY() - boss->GetPositionY();
-    float radius = sqrt(dx * dx + dy * dy);
-    if (radius < 12.0f)
-        radius = 12.0f;
-    if (radius > 40.0f)
-        radius = 40.0f;
+    float const angle = atan2(bot->GetPositionY() - boss->GetPositionY(), bot->GetPositionX() - boss->GetPositionX());
+    bool const melee = OnInnerRing(ai, bot);
 
-    float const angle = atan2(dy, dx);
     float bestX = bot->GetPositionX();
     float bestY = bot->GetPositionY();
+    float bestZ = bot->GetPositionZ();
     float bestDistance = -1.0f;
-    for (float turn : { 0.8f, -0.8f, 1.6f, -1.6f })
+    for (float turn : { 0.7f, -0.7f, 1.4f, -1.4f })
     {
-        float const x = boss->GetPositionX() + cos(angle + turn) * radius;
-        float const y = boss->GetPositionY() + sin(angle + turn) * radius;
+        float x = 0.0f;
+        float y = 0.0f;
+        float z = 0.0f;
+        if (!PointAtSpiralAngle(boss, angle + turn, melee, x, y, z))
+            continue;
+
         float const ddx = x - dangerX;
         float const ddy = y - dangerY;
         float const distance = sqrt(ddx * ddx + ddy * ddy);
@@ -1551,17 +1930,27 @@ bool RagnarosStepAsideAction::Execute(Event& /*event*/)
             bestDistance = distance;
             bestX = x;
             bestY = y;
+            bestZ = z;
         }
     }
 
-    float const z = PlaceZ(boss, bestX, bestY);
-    if (AboveFloor(bot, boss))
-    {
-        ai->StopMoving();
-        return bot->TeleportTo(bot->GetMapId(), bestX, bestY, z, bot->GetAngle(boss));
-    }
+    if (bestDistance < 0.0f)
+        return false;
 
-    return MoveTo(bot->GetMapId(), bestX, bestY, z, false, true, true, true);
+    LineStep const step = PlanLineStep(bot, boss, bestX, bestY, bestZ, melee);
+    if (step.order == LineOrder::Rescue)
+    {
+        ForgetStep(bot);
+        return TeleportOntoFloor(ai, bot, boss, bestX, bestY, bestZ);
+    }
+    if (step.order != LineOrder::Walk)
+        return false;
+
+    if (!MoveTo(bot->GetMapId(), step.x, step.y, step.z, false, true, true, true))
+        return false;
+
+    RememberStep(bot, step.x, step.y);
+    return true;
 }
 
 bool AttackRagnarosBossAction::isUseful()
@@ -1573,11 +1962,9 @@ bool AttackRagnarosBossAction::isUseful()
     if (!boss || BossSubmerged(boss))
         return false;
 
-    if (RagnarosBotAboveFloor(bot))
-        return true;
-
-    if (!boss->CanReachWithMeleeAttack(bot))
-        return true;
+    float x, y, z;
+    if (RagnarosRingPoint(bot, x, y, z) && OutOfSlot(bot, x, y, z))
+        return false;
 
     Unit* target = ai->GetUnit(AI_VALUE(ObjectGuid, "current target"));
     return target != boss;
@@ -1589,31 +1976,9 @@ bool AttackRagnarosBossAction::Execute(Event& event)
     if (!boss)
         return false;
 
-    if (RagnarosBotAboveFloor(bot))
-    {
-        float x, y, z;
-        if (!RagnarosRingPoint(bot, x, y, z))
-            return false;
-
-        ai->StopMoving();
-        return bot->TeleportTo(bot->GetMapId(), x, y, z, bot->GetAngle(boss));
-    }
-
-    if (!boss->CanReachWithMeleeAttack(bot))
-    {
-        float x, y, z;
-        if (!RagnarosRingPoint(bot, x, y, z))
-            return false;
-
-        float const dx = bot->GetPositionX() - x;
-        float const dy = bot->GetPositionY() - y;
-        if (dx * dx + dy * dy > RAGNAROS_SLOT_TOLERANCE * RAGNAROS_SLOT_TOLERANCE)
-        {
-            float stepX, stepY, stepZ;
-            NextPlatformPoint(bot, boss, x, y, stepX, stepY, stepZ);
-            return MoveTo(bot->GetMapId(), stepX, stepY, stepZ, false, false, true, true);
-        }
-    }
+    float x, y, z;
+    if (RagnarosRingPoint(bot, x, y, z) && OutOfSlot(bot, x, y, z))
+        return false;
 
     Player* requester = event.getOwner() ? event.getOwner() : GetMaster();
     return Attack(requester, boss);
@@ -1628,12 +1993,15 @@ bool AttackRagnarosSonAction::isUseful()
     if (!son)
         return false;
 
-    Creature* boss = FindRagnarosPlatformBoss(bot);
-    if (boss && AboveFloor(bot, boss))
-        return true;
-
-    if (bot->GetDistance2d(son->GetPositionX(), son->GetPositionY()) > StopRangeFor(ai, bot))
-        return true;
+    if (ai->IsTank(bot))
+    {
+        float x, y, z;
+        Creature* boss = FindRagnarosPlatformBoss(bot);
+        if (boss && son->GetVictim() != bot && SonStandPoint(bot, son, x, y, z) && OutOfSlot(bot, x, y, z))
+            return PlanLineStep(bot, boss, x, y, z, true).order != LineOrder::Stay;
+    }
+    else if (bot->GetDistance2d(son->GetPositionX(), son->GetPositionY()) > StopRangeFor(ai, bot))
+        return false;
 
     Unit* target = ai->GetUnit(AI_VALUE(ObjectGuid, "current target"));
     return target != son;
@@ -1646,22 +2014,26 @@ bool AttackRagnarosSonAction::Execute(Event& event)
     if (!son || !boss)
         return false;
 
-    float const stop = StopRangeFor(ai, bot);
-    if (AboveFloor(bot, boss) || bot->GetDistance2d(son->GetPositionX(), son->GetPositionY()) > stop)
+    if (ai->IsTank(bot) && son->GetVictim() != bot)
     {
         float x, y, z;
-        if (!ApproachPoint(bot, boss, son, stop, x, y, z))
-            return false;
-
-        if (AboveFloor(bot, boss))
+        if (SonStandPoint(bot, son, x, y, z) && OutOfSlot(bot, x, y, z))
         {
-            ai->StopMoving();
-            return bot->TeleportTo(bot->GetMapId(), x, y, z, bot->GetAngle(son));
-        }
+            LineStep const step = PlanLineStep(bot, boss, x, y, z, true);
+            if (step.order == LineOrder::Rescue)
+            {
+                ForgetStep(bot);
+                return TeleportOntoFloor(ai, bot, boss, x, y, z);
+            }
+            if (step.order != LineOrder::Walk)
+                return false;
 
-        float stepX, stepY, stepZ;
-        NextPlatformPoint(bot, boss, x, y, stepX, stepY, stepZ);
-        return MoveTo(bot->GetMapId(), stepX, stepY, stepZ, false, false, true, true);
+            if (!MoveTo(bot->GetMapId(), step.x, step.y, step.z, false, true, true, true))
+                return false;
+
+            RememberStep(bot, step.x, step.y);
+            return true;
+        }
     }
 
     Player* requester = event.getOwner() ? event.getOwner() : GetMaster();
