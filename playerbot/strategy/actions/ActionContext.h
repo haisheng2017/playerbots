@@ -381,12 +381,22 @@ namespace ai
             // Dungeon Boss Actions
             creators["enable onyxia fight strategy"] = [](PlayerbotAI* ai) { return new OnyxiaEnableFightStrategyAction(ai); };
             creators["disable onyxia fight strategy"] = [](PlayerbotAI* ai) { return new OnyxiaDisableFightStrategyAction(ai); };
+            creators["move away from onyxia breath"] = [](PlayerbotAI* ai) { return new OnyxiaMoveAwayFromBreathAction(ai); };
+            creators["move back into onyxia lair"] = [](PlayerbotAI* ai) { return new OnyxiaMoveBackIntoLairAction(ai); };
+            creators["move to onyxia position"] = [](PlayerbotAI* ai) { return new OnyxiaMoveToPositionAction(ai); };
+            creators["attack onyxia whelp"] = [](PlayerbotAI* ai) { return new OnyxiaAttackWhelpAction(ai); };
+            creators["onyxia fear ward"] = [](PlayerbotAI* ai) { return new OnyxiaFearWardAction(ai); };
+            creators["onyxia main tank taunt"] = [](PlayerbotAI* ai) { return new OnyxiaMainTankTauntAction(ai); };
+            creators["move to onyxia tank spot"] = [](PlayerbotAI* ai) { return new OnyxiaMoveToTankSpotAction(ai); };
+            creators["onyxia hold dps"] = [](PlayerbotAI* ai) { return new OnyxiaHoldDpsAction(ai); };
+            creators["lure onyxia whelp"] = [](PlayerbotAI* ai) { return new OnyxiaLureWhelpAction(ai); };
 
             creators["enable magmadar fight strategy"] = [](PlayerbotAI* ai) { return new MagmadarEnableFightStrategyAction(ai); };
             creators["disable magmadar fight strategy"] = [](PlayerbotAI* ai) { return new MagmadarDisableFightStrategyAction(ai); };
             creators["move away from magmadar"] = [](PlayerbotAI* ai) { return new MagmadarMoveAwayAction(ai); };
 
             creators["move away from hazard"] = [](PlayerbotAI* ai) { return new MoveAwayFromHazard(ai); };
+            creators["dungeon consumable buff"] = [](PlayerbotAI* ai) { return new ApplyDungeonConsumableBuffAction(ai); };
             creators["move to mc rune"] = [](PlayerbotAI* ai) { return new MoveToMCRuneAction(ai); };
             creators["douse mc rune aqual"] = [](PlayerbotAI* ai) { return new DouseMCRuneActionAqual(ai); };
             creators["douse mc rune eternal"] = [](PlayerbotAI* ai) { return new DouseMCRuneActionEternal(ai); };

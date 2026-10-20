@@ -1,4 +1,5 @@
 #include "DungeonActions.h"
+#include "playerbot/playerbot.h"
 #include "playerbot/strategy/values/PositionValue.h"
 #include "playerbot/strategy/AiObjectContext.h"
 #include "playerbot/PlayerbotAI.h"
@@ -330,4 +331,79 @@ bool MoveAwayFromSpecificCreatures::Execute(Event& event)
             return result;
     }
     return false;
+}
+
+namespace
+{
+    bool MissingAura(PlayerbotAI* ai, Player* bot, uint32 spellId)
+    {
+        return spellId && !ai->HasAura(spellId, bot);
+    }
+}
+
+bool ai::GetDungeonConsumableBuffs(PlayerbotAI* ai, uint32& flask, uint32& food, uint32& fireProtection)
+{
+    flask = 0;
+    food = 0;
+    fireProtection = 0;
+
+    Player* bot = ai->GetBot();
+    if (!bot || !bot->IsInWorld() || !bot->GetSession())
+        return false;
+
+    if (!sPlayerbotAIConfig.IsInRandomAccountList(bot->GetSession()->GetAccountId()))
+        return false;
+
+    Map* map = bot->GetMap();
+    if (!map || (!map->IsDungeon() && !map->IsRaid()))
+        return false;
+
+    if (ai->IsTank(bot, true) || (!ai->IsRanged(bot) && !ai->IsHeal(bot)))
+    {
+        flask = 17626;
+        food = 25660;
+    }
+    else if (ai->IsHeal(bot))
+    {
+        flask = 17627;
+        food = 18233;
+    }
+    else
+    {
+        flask = 17628;
+        food = 22731;
+    }
+
+    if (map->GetId() == 249)
+        fireProtection = 17543;
+
+    return MissingAura(ai, bot, flask) || MissingAura(ai, bot, food) || MissingAura(ai, bot, fireProtection);
+}
+
+bool ApplyDungeonConsumableBuffAction::Execute(Event& event)
+{
+    uint32 flask = 0;
+    uint32 food = 0;
+    uint32 fireProtection = 0;
+    if (!GetDungeonConsumableBuffs(ai, flask, food, fireProtection))
+        return false;
+
+    if (MissingAura(ai, bot, flask))
+        PlayerbotAI::AddAura(bot, flask);
+
+    if (MissingAura(ai, bot, food))
+        PlayerbotAI::AddAura(bot, food);
+
+    if (MissingAura(ai, bot, fireProtection))
+        PlayerbotAI::AddAura(bot, fireProtection);
+
+    return true;
+}
+
+bool ApplyDungeonConsumableBuffAction::isUseful()
+{
+    uint32 flask = 0;
+    uint32 food = 0;
+    uint32 fireProtection = 0;
+    return GetDungeonConsumableBuffs(ai, flask, food, fireProtection);
 }

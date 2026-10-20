@@ -300,6 +300,7 @@ namespace ai
             creators["perception"] = [](PlayerbotAI* ai) { return new PerceptionTrigger(ai); };
 
             // Dungeon Triggers
+            creators["dungeon consumable buff"] = [](PlayerbotAI* ai) { return new DungeonConsumableBuffTrigger(ai); };
             creators["enter onyxias lair"] = [](PlayerbotAI* ai) { return new OnyxiasLairEnterDungeonTrigger(ai); };
             creators["leave onyxias lair"] = [](PlayerbotAI* ai) { return new OnyxiasLairLeaveDungeonTrigger(ai); };
             creators["enter molten core"] = [](PlayerbotAI* ai) { return new MoltenCoreEnterDungeonTrigger(ai); };
@@ -316,6 +317,16 @@ namespace ai
             // Dungeon Boss Triggers
             creators["start onyxia fight"] = [](PlayerbotAI* ai) { return new OnyxiaStartFightTrigger(ai); };
             creators["end onyxia fight"] = [](PlayerbotAI* ai) { return new OnyxiaEndFightTrigger(ai); };
+            creators["onyxia deep breath"] = [](PlayerbotAI* ai) { return new OnyxiaDeepBreathTrigger(ai); };
+            creators["onyxia out of lair"] = [](PlayerbotAI* ai) { return new OnyxiaOutOfLairTrigger(ai); };
+            creators["onyxia whelp"] = [](PlayerbotAI* ai) { return new OnyxiaWhelpTrigger(ai); };
+            creators["onyxia move to position"] = [](PlayerbotAI* ai) { return new OnyxiaPositionTrigger(ai); };
+            creators["onyxia fear ward"] = [](PlayerbotAI* ai) { return new OnyxiaFearWardTrigger(ai); };
+            creators["onyxia tremor totem"] = [](PlayerbotAI* ai) { return new OnyxiaTremorTotemTrigger(ai); };
+            creators["onyxia main tank taunt"] = [](PlayerbotAI* ai) { return new OnyxiaMainTankTauntTrigger(ai); };
+            creators["onyxia tank spot"] = [](PlayerbotAI* ai) { return new OnyxiaTankSpotTrigger(ai); };
+            creators["onyxia hold dps"] = [](PlayerbotAI* ai) { return new OnyxiaHoldDpsTrigger(ai); };
+            creators["onyxia whelp lure"] = [](PlayerbotAI* ai) { return new OnyxiaWhelpLureTrigger(ai); };
 
             creators["start magmadar fight"] = [](PlayerbotAI* ai) { return new MagmadarStartFightTrigger(ai); };
             creators["end magmadar fight"] = [](PlayerbotAI* ai) { return new MagmadarEndFightTrigger(ai); };
