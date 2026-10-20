@@ -2,6 +2,7 @@
 #include "DungeonActions.h"
 #include "ChangeStrategyAction.h"
 #include "UseItemAction.h"
+#include "AttackAction.h"
 
 namespace ai
 {
@@ -41,21 +42,364 @@ namespace ai
         MagmadarMoveAwayAction(PlayerbotAI* ai) : MoveAwayFromCreature(ai, "move away from magmadar", 11982, 31.0f) {}
     };
 
+    class BaronGeddonEnableFightStrategyAction : public ChangeAllStrategyAction
+    {
+    public:
+        BaronGeddonEnableFightStrategyAction(PlayerbotAI* ai) : ChangeAllStrategyAction(ai, "enable baron geddon fight strategy", "+baron geddon") {}
+    };
+
+    class BaronGeddonDisableFightStrategyAction : public ChangeAllStrategyAction
+    {
+    public:
+        BaronGeddonDisableFightStrategyAction(PlayerbotAI* ai) : ChangeAllStrategyAction(ai, "disable baron geddon fight strategy", "-baron geddon") {}
+    };
+
+    class ShazzrahEnableFightStrategyAction : public ChangeAllStrategyAction
+    {
+    public:
+        ShazzrahEnableFightStrategyAction(PlayerbotAI* ai) : ChangeAllStrategyAction(ai, "enable shazzrah fight strategy", "+shazzrah") {}
+    };
+
+    class ShazzrahDisableFightStrategyAction : public ChangeAllStrategyAction
+    {
+    public:
+        ShazzrahDisableFightStrategyAction(PlayerbotAI* ai) : ChangeAllStrategyAction(ai, "disable shazzrah fight strategy", "-shazzrah") {}
+    };
+
+    class ShazzrahMoveAwayAction : public MoveAwayFromCreature
+    {
+    public:
+        ShazzrahMoveAwayAction(PlayerbotAI* ai) : MoveAwayFromCreature(ai, "move away from shazzrah", 12264, 31.0f) {}
+    };
+
+    class SulfuronEnableFightStrategyAction : public ChangeAllStrategyAction
+    {
+    public:
+        SulfuronEnableFightStrategyAction(PlayerbotAI* ai) : ChangeAllStrategyAction(ai, "enable sulfuron fight strategy", "+sulfuron") {}
+    };
+
+    class SulfuronDisableFightStrategyAction : public ChangeAllStrategyAction
+    {
+    public:
+        SulfuronDisableFightStrategyAction(PlayerbotAI* ai) : ChangeAllStrategyAction(ai, "disable sulfuron fight strategy", "-sulfuron") {}
+    };
+
+    class MajordomoEnableFightStrategyAction : public ChangeAllStrategyAction
+    {
+    public:
+        MajordomoEnableFightStrategyAction(PlayerbotAI* ai) : ChangeAllStrategyAction(ai, "enable majordomo fight strategy", "+majordomo") {}
+    };
+
+    class MajordomoDisableFightStrategyAction : public ChangeAllStrategyAction
+    {
+    public:
+        MajordomoDisableFightStrategyAction(PlayerbotAI* ai) : ChangeAllStrategyAction(ai, "disable majordomo fight strategy", "-majordomo") {}
+    };
+
+    class MajordomoMoveAwayAction : public MoveAwayFromCreature
+    {
+    public:
+        MajordomoMoveAwayAction(PlayerbotAI* ai) : MoveAwayFromCreature(ai, "move away from majordomo", 12018, 16.0f) {}
+    };
+
+    class BaronGeddonMoveAwayFromInfernoAction : public MoveAwayFromCreature
+    {
+    public:
+        BaronGeddonMoveAwayFromInfernoAction(PlayerbotAI* ai) : MoveAwayFromCreature(ai, "move away from baron geddon inferno", 12056, 18.0f) {}
+    };
+
+    class BaronGeddonMoveAwayFromArmageddonAction : public MoveAwayFromCreature
+    {
+    public:
+        BaronGeddonMoveAwayFromArmageddonAction(PlayerbotAI* ai) : MoveAwayFromCreature(ai, "move away from baron geddon armageddon", 12056, 35.0f) {}
+    };
+
+    // Living Bomb carrier (aura 20475): run away from other players and the boss until it goes off
+    class BaronGeddonLivingBombEscapeAction : public MovementAction
+    {
+    public:
+        BaronGeddonLivingBombEscapeAction(PlayerbotAI* ai) : MovementAction(ai, "baron geddon living bomb escape") {}
+        bool Execute(Event& event) override;
+        bool isPossible() override;
+    };
+
+    // Majordomo cannot be killed and Sulfuron's priests heal everything:
+    // attack the encounter's adds instead of the boss himself while they live
+    class AttackBossAddAction : public AttackAction
+    {
+    public:
+        AttackBossAddAction(PlayerbotAI* ai, std::string name, std::vector<uint32> addEntries)
+            : AttackAction(ai, name), addEntries(addEntries) {}
+
+        bool Execute(Event& event) override;
+        bool isUseful() override;
+
+    protected:
+        Creature* FindAdd();
+
+    private:
+        std::vector<uint32> addEntries;
+    };
+
+    // Kill order: skull on an add, otherwise the elite closest to Majordomo, otherwise a healer.
+    // Sheeped adds are skipped so a polymorph is not broken to retarget.
+    Creature* FindMajordomoKillTarget(PlayerbotAI* ai);
+    // A Flamewaker Healer a mage should sheep: not the kill target, not already a sheep, not immune.
+    Creature* FindMajordomoSheepTarget(PlayerbotAI* ai);
+    // One add per off-tank, including the skull. Elites first; healers once the elites are dead.
+    Creature* FindMajordomoEliteToTank(PlayerbotAI* ai);
+    // The one off-tank who holds Majordomo while the main tank is away or has lost him.
+    bool MajordomoBotShouldCoverBoss(PlayerbotAI* ai);
+    // Main tank taunts Majordomo whenever the boss is not on him, even if another tank has it.
+    bool MajordomoMainTankShouldTaunt(PlayerbotAI* ai);
+    // Standing in the lava around Majordomo's platform.
+    bool MajordomoBotInLava(Player* bot);
+
+    // Ragnaros's room. The navmesh treats the rock pillars as walkable ground, so
+    // movement here stays on a ring at his floor height and does not search it.
+    Creature* FindRagnarosPlatformBoss(Player* bot);
+    bool BotInRagnarosRoom(Player* bot);
+    bool RagnarosBotAboveFloor(Player* bot);
+    // This bot's slot on the fixed map route. It does not follow the boss.
+    bool RagnarosRingPoint(Player* bot, float& x, float& y, float& z);
+    // True when the bot is in the room: rewrites x/y/z to the ring and skips navmesh snapping.
+    bool TryRagnarosRingLanding(Player* bot, float& x, float& y, float& z);
+    // Next walk step toward dest that stays inside the dry band. Never a chord across the pool.
+    // False when the bot is already in the band at the destination's part of the line.
+    bool RagnarosRouteStep(Player* bot, float destX, float destY, float destZ, float& x, float& y, float& z);
+    // One Son of Flame per tank while Ragnaros is submerged. The main tank is included then.
+    Creature* FindRagnarosSonToTank(PlayerbotAI* ai);
+    bool RagnarosSonsAlive(PlayerbotAI* ai);
+    // A lava burst covers this bot. x/y is the object, range is the patch to leave.
+    bool RagnarosLavaBurstCovers(Player* bot, float& x, float& y, float& range);
+    // True while this bot's own polymorph is still on some living healer.
+    bool MajordomoMageOwnsSheep(PlayerbotAI* ai);
+    // Current target is a Flamewaker wearing Magic Reflection or Damage Shield, and this bot must stop hitting it.
+    bool MajordomoShouldHoldForShield(PlayerbotAI* ai);
+
+    class MajordomoAttackAddAction : public AttackBossAddAction
+    {
+    public:
+        MajordomoAttackAddAction(PlayerbotAI* ai) : AttackBossAddAction(ai, "attack majordomo add", {11663, 11664}) {}
+        bool Execute(Event& event) override;
+        bool isUseful() override;
+    };
+
+    // Off-tanks each hold one add, including the skull the raid is killing.
+    class AttackMajordomoEliteAction : public AttackAction
+    {
+    public:
+        AttackMajordomoEliteAction(PlayerbotAI* ai) : AttackAction(ai, "attack majordomo elite") {}
+        bool Execute(Event& event) override;
+        bool isUseful() override;
+    };
+
+    // Main tank's taunt is reserved for Majordomo, and fires whenever the boss is not on him.
+    class MajordomoMainTankTauntAction : public Action
+    {
+    public:
+        MajordomoMainTankTauntAction(PlayerbotAI* ai) : Action(ai, "majordomo main tank taunt") {}
+        bool Execute(Event& event) override;
+        bool isUseful() override;
+    };
+
+    // One off-tank picks Majordomo up after the teleport and threat wipe, until the main tank has him again.
+    class AttackMajordomoCoverAction : public AttackAction
+    {
+    public:
+        AttackMajordomoCoverAction(PlayerbotAI* ai) : AttackAction(ai, "attack majordomo cover") {}
+        bool Execute(Event& event) override;
+        bool isUseful() override;
+    };
+
+    // Step back onto the platform. Straight line, so a path through the lava is not the way out.
+    class MajordomoLeaveLavaAction : public MovementAction
+    {
+    public:
+        MajordomoLeaveLavaAction(PlayerbotAI* ai) : MovementAction(ai, "majordomo leave lava") {}
+        bool Execute(Event& event) override;
+        bool isPossible() override;
+    };
+
+    // One polymorph per mage, on a healer the raid is not currently killing
+    class MajordomoPolymorphHealerAction : public Action
+    {
+    public:
+        MajordomoPolymorphHealerAction(PlayerbotAI* ai) : Action(ai, "polymorph majordomo healer") {}
+        bool Execute(Event& event) override;
+        bool isUseful() override;
+    };
+
+    // Drops the swing or the cast while the add's shield would punish it. Returns false so
+    // healing and movement on the same tick still run.
+    class MajordomoShieldHoldAction : public Action
+    {
+    public:
+        MajordomoShieldHoldAction(PlayerbotAI* ai) : Action(ai, "majordomo shield hold") {}
+        bool Execute(Event& event) override;
+        bool isUseful() override;
+    };
+
+    class SulfuronAttackAddAction : public AttackBossAddAction
+    {
+    public:
+        SulfuronAttackAddAction(PlayerbotAI* ai) : AttackBossAddAction(ai, "attack sulfuron add", {11662}) {}
+    };
+
+    // The main tank belongs on the boss while the adds are up:
+    // pulls him back after a one-shot player command or a pull gone sideways
+    class AttackBossEntryAction : public AttackAction
+    {
+    public:
+        AttackBossEntryAction(PlayerbotAI* ai, std::string name, uint32 bossEntry)
+            : AttackAction(ai, name), bossEntry(bossEntry) {}
+
+        bool Execute(Event& event) override;
+        bool isUseful() override;
+
+    protected:
+        uint32 bossEntry;
+    };
+
+    class AttackSulfuronBossAction : public AttackBossEntryAction
+    {
+    public:
+        AttackSulfuronBossAction(PlayerbotAI* ai) : AttackBossEntryAction(ai, "attack sulfuron boss", 12098) {}
+    };
+
+    class AttackMajordomoBossAction : public AttackBossEntryAction
+    {
+    public:
+        AttackMajordomoBossAction(PlayerbotAI* ai) : AttackBossEntryAction(ai, "attack majordomo boss", 12018) {}
+    };
+
+    class RagnarosEnableFightStrategyAction : public ChangeAllStrategyAction
+    {
+    public:
+        RagnarosEnableFightStrategyAction(PlayerbotAI* ai) : ChangeAllStrategyAction(ai, "enable ragnaros fight strategy", "+ragnaros") {}
+    };
+
+    class RagnarosDisableFightStrategyAction : public ChangeAllStrategyAction
+    {
+    public:
+        RagnarosDisableFightStrategyAction(PlayerbotAI* ai) : ChangeAllStrategyAction(ai, "disable ragnaros fight strategy", "-ragnaros") {}
+    };
+
+    // The Sons of Flame are banishable elementals: the warlocks keep a share of
+    // them out of the fight while everyone else burns the rest
+    class RagnarosEnableWarlockCcAction : public ChangeAllStrategyAction
+    {
+    public:
+        RagnarosEnableWarlockCcAction(PlayerbotAI* ai) : ChangeAllStrategyAction(ai, "enable ragnaros warlock cc", "+cc") {}
+    };
+
+    class RagnarosDisableWarlockCcAction : public ChangeAllStrategyAction
+    {
+    public:
+        RagnarosDisableWarlockCcAction(PlayerbotAI* ai) : ChangeAllStrategyAction(ai, "disable ragnaros warlock cc", "-cc") {}
+    };
+
+    class RagnarosMoveAwayAction : public MoveAwayFromCreature
+    {
+    public:
+        RagnarosMoveAwayAction(PlayerbotAI* ai) : MoveAwayFromCreature(ai, "move away from ragnaros", 11502, 30.0f) {}
+    };
+
+    // Run away from the flame of Might of Ragnaros (~2000 fire damage around it)
+    class RagnarosMoveAwayFromFlameAction : public MoveAwayFromCreature
+    {
+    public:
+        RagnarosMoveAwayFromFlameAction(PlayerbotAI* ai) : MoveAwayFromCreature(ai, "move away from ragnaros flame", 13148, 13.0f) {}
+    };
+
+    // Stand on the dry spiral. Knockbacks are walked back; nothing teleports.
+    class RagnarosSpreadAction : public MovementAction
+    {
+    public:
+        RagnarosSpreadAction(PlayerbotAI* ai) : MovementAction(ai, "ragnaros spread") {}
+        bool Execute(Event& event) override;
+        bool isUseful() override;
+    };
+
+    // Walk along the spiral, away from a lava patch or a flame. No navmesh search.
+    class RagnarosStepAsideAction : public MovementAction
+    {
+    public:
+        RagnarosStepAsideAction(PlayerbotAI* ai) : MovementAction(ai, "ragnaros step aside") {}
+        bool Execute(Event& event) override;
+        bool isUseful() override;
+    };
+
+    // The main tank's pull back onto Ragnaros: he is rooted but nukes random
+    // players whenever nobody stood in his melee range long enough.
+    // Getting onto the spiral is the spread walk; this only swings once he is there.
+    class AttackRagnarosBossAction : public AttackBossEntryAction
+    {
+    public:
+        AttackRagnarosBossAction(PlayerbotAI* ai) : AttackBossEntryAction(ai, "attack ragnaros boss", 11502) {}
+        bool Execute(Event& event) override;
+        bool isUseful() override;
+    };
+
+    class AttackRagnarosSonAction : public AttackBossAddAction
+    {
+    public:
+        AttackRagnarosSonAction(PlayerbotAI* ai) : AttackBossAddAction(ai, "attack ragnaros son", {12143}) {}
+        bool Execute(Event& event) override;
+        bool isUseful() override;
+    };
+
     class MoveToMCRuneAction : public MoveToAction
     {
     public:
-        MoveToMCRuneAction(PlayerbotAI* ai) : MoveToAction(ai, "move to mc rune") { qualifier = "entry filter::{gos in sight,mc runes}"; }
+        MoveToMCRuneAction(PlayerbotAI* ai) : MoveToAction(ai, "move to mc rune")
+        {
+            qualifier = "mc dousable rune filter::go usable filter::go trapped filter::entry filter::{gos in sight,mc runes}";
+        }
     };
 
-    class DouseMCRuneActionAqual : public UseItemIdAction
+    class DouseMCRuneActionBase : public UseItemIdAction
     {
     public:
-        DouseMCRuneActionAqual(PlayerbotAI* ai) : UseItemIdAction(ai, "douse mc rune aqual") { qualifier = "{17333,entry filter::{gos close,mc runes}}"; }
+        DouseMCRuneActionBase(PlayerbotAI* ai, std::string name) : UseItemIdAction(ai, name) {}
+        bool Execute(Event& event) override;
+        bool isUseful() override;
+
+    protected:
+        GameObject* GetTargetRune();
     };
 
-    class DouseMCRuneActionEternal : public UseItemIdAction
+    class DouseMCRuneActionAqual : public DouseMCRuneActionBase
     {
     public:
-        DouseMCRuneActionEternal(PlayerbotAI* ai) : UseItemIdAction(ai, "douse mc rune eternal") { qualifier = "{22754,entry filter::{gos close,mc runes}}"; }
+        DouseMCRuneActionAqual(PlayerbotAI* ai) : DouseMCRuneActionBase(ai, "douse mc rune aqual")
+        {
+            qualifier = "{17333,mc dousable rune filter::go usable filter::entry filter::{gos close,mc runes}}";
+        }
+    };
+
+    class DouseMCRuneActionEternal : public DouseMCRuneActionBase
+    {
+    public:
+        DouseMCRuneActionEternal(PlayerbotAI* ai) : DouseMCRuneActionBase(ai, "douse mc rune eternal")
+        {
+            qualifier = "{22754,mc dousable rune filter::go usable filter::entry filter::{gos close,mc runes}}";
+        }
+    };
+
+    // Says the douse line only after this bot's cast actually counted.
+    class SayMCRuneDousedAction : public Action
+    {
+    public:
+        SayMCRuneDousedAction(PlayerbotAI* ai) : Action(ai, "say mc rune doused") {}
+        bool Execute(Event& event) override;
+    };
+
+    class RefreshMCQuintessenceAction : public Action
+    {
+    public:
+        RefreshMCQuintessenceAction(PlayerbotAI* ai) : Action(ai, "refresh mc quintessence") {}
+        bool Execute(Event& event) override;
+        bool isPossible() override;
     };
 }

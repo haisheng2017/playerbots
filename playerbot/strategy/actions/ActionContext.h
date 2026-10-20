@@ -395,11 +395,51 @@ namespace ai
             creators["disable magmadar fight strategy"] = [](PlayerbotAI* ai) { return new MagmadarDisableFightStrategyAction(ai); };
             creators["move away from magmadar"] = [](PlayerbotAI* ai) { return new MagmadarMoveAwayAction(ai); };
 
+            creators["enable baron geddon fight strategy"] = [](PlayerbotAI* ai) { return new BaronGeddonEnableFightStrategyAction(ai); };
+            creators["disable baron geddon fight strategy"] = [](PlayerbotAI* ai) { return new BaronGeddonDisableFightStrategyAction(ai); };
+            creators["move away from baron geddon inferno"] = [](PlayerbotAI* ai) { return new BaronGeddonMoveAwayFromInfernoAction(ai); };
+            creators["move away from baron geddon armageddon"] = [](PlayerbotAI* ai) { return new BaronGeddonMoveAwayFromArmageddonAction(ai); };
+            creators["baron geddon living bomb escape"] = [](PlayerbotAI* ai) { return new BaronGeddonLivingBombEscapeAction(ai); };
+
+            creators["enable shazzrah fight strategy"] = [](PlayerbotAI* ai) { return new ShazzrahEnableFightStrategyAction(ai); };
+            creators["disable shazzrah fight strategy"] = [](PlayerbotAI* ai) { return new ShazzrahDisableFightStrategyAction(ai); };
+            creators["move away from shazzrah"] = [](PlayerbotAI* ai) { return new ShazzrahMoveAwayAction(ai); };
+
+            creators["enable sulfuron fight strategy"] = [](PlayerbotAI* ai) { return new SulfuronEnableFightStrategyAction(ai); };
+            creators["disable sulfuron fight strategy"] = [](PlayerbotAI* ai) { return new SulfuronDisableFightStrategyAction(ai); };
+            creators["attack sulfuron add"] = [](PlayerbotAI* ai) { return new SulfuronAttackAddAction(ai); };
+            creators["attack sulfuron boss"] = [](PlayerbotAI* ai) { return new AttackSulfuronBossAction(ai); };
+
+            creators["enable majordomo fight strategy"] = [](PlayerbotAI* ai) { return new MajordomoEnableFightStrategyAction(ai); };
+            creators["disable majordomo fight strategy"] = [](PlayerbotAI* ai) { return new MajordomoDisableFightStrategyAction(ai); };
+            creators["move away from majordomo"] = [](PlayerbotAI* ai) { return new MajordomoMoveAwayAction(ai); };
+            creators["attack majordomo add"] = [](PlayerbotAI* ai) { return new MajordomoAttackAddAction(ai); };
+            creators["attack majordomo elite"] = [](PlayerbotAI* ai) { return new AttackMajordomoEliteAction(ai); };
+            creators["attack majordomo cover"] = [](PlayerbotAI* ai) { return new AttackMajordomoCoverAction(ai); };
+            creators["majordomo main tank taunt"] = [](PlayerbotAI* ai) { return new MajordomoMainTankTauntAction(ai); };
+            creators["majordomo leave lava"] = [](PlayerbotAI* ai) { return new MajordomoLeaveLavaAction(ai); };
+            creators["polymorph majordomo healer"] = [](PlayerbotAI* ai) { return new MajordomoPolymorphHealerAction(ai); };
+            creators["majordomo shield hold"] = [](PlayerbotAI* ai) { return new MajordomoShieldHoldAction(ai); };
+            creators["attack majordomo boss"] = [](PlayerbotAI* ai) { return new AttackMajordomoBossAction(ai); };
+
+            creators["enable ragnaros fight strategy"] = [](PlayerbotAI* ai) { return new RagnarosEnableFightStrategyAction(ai); };
+            creators["disable ragnaros fight strategy"] = [](PlayerbotAI* ai) { return new RagnarosDisableFightStrategyAction(ai); };
+            creators["enable ragnaros warlock cc"] = [](PlayerbotAI* ai) { return new RagnarosEnableWarlockCcAction(ai); };
+            creators["disable ragnaros warlock cc"] = [](PlayerbotAI* ai) { return new RagnarosDisableWarlockCcAction(ai); };
+            creators["move away from ragnaros"] = [](PlayerbotAI* ai) { return new RagnarosMoveAwayAction(ai); };
+            creators["move away from ragnaros flame"] = [](PlayerbotAI* ai) { return new RagnarosMoveAwayFromFlameAction(ai); };
+            creators["ragnaros spread"] = [](PlayerbotAI* ai) { return new RagnarosSpreadAction(ai); };
+            creators["ragnaros step aside"] = [](PlayerbotAI* ai) { return new RagnarosStepAsideAction(ai); };
+            creators["attack ragnaros boss"] = [](PlayerbotAI* ai) { return new AttackRagnarosBossAction(ai); };
+            creators["attack ragnaros son"] = [](PlayerbotAI* ai) { return new AttackRagnarosSonAction(ai); };
+
             creators["move away from hazard"] = [](PlayerbotAI* ai) { return new MoveAwayFromHazard(ai); };
             creators["dungeon consumable buff"] = [](PlayerbotAI* ai) { return new ApplyDungeonConsumableBuffAction(ai); };
             creators["move to mc rune"] = [](PlayerbotAI* ai) { return new MoveToMCRuneAction(ai); };
             creators["douse mc rune aqual"] = [](PlayerbotAI* ai) { return new DouseMCRuneActionAqual(ai); };
             creators["douse mc rune eternal"] = [](PlayerbotAI* ai) { return new DouseMCRuneActionEternal(ai); };
+            creators["say mc rune doused"] = [](PlayerbotAI* ai) { return new SayMCRuneDousedAction(ai); };
+            creators["refresh mc quintessence"] = [](PlayerbotAI* ai) { return new RefreshMCQuintessenceAction(ai); };
 
             creators["move to suppression device"] = [](PlayerbotAI* ai) { return new MoveToSuppressionDeviceAction(ai); };
             creators["stealth for suppression device"] = [](PlayerbotAI* ai) { return new StealthForSuppressionDeviceAction(ai); };

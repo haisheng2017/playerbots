@@ -37,6 +37,7 @@
 #include "strategy/ItemVisitors.h"
 #include "strategy/values/LootValues.h"
 #include "strategy/values/AttackersValue.h"
+#include "strategy/actions/MoltenCoreDungeonActions.h"
 #include "Entities/Transports.h"
 #include "Guilds/GuildMgr.h"
 #include "Chat/ChannelMgr.h"
@@ -2213,6 +2214,24 @@ void PlayerbotAI::HandleBotOutgoingPacket(const WorldPacket& packet)
         // write jump time
         uint32 curTime = sWorld.GetCurrentMSTime();
         jumpTime = curTime + sWorld.GetAverageDiff() + (uint32)(timeToLand * static_cast<uint32>(IN_MILLISECONDS)) + 1000;
+
+        // Snap the landing point onto the nearest walkable polygon: knockbacks
+        // fling bots into lava or onto unreachable ledges where their own
+        // pathfinding can never reach them (bot nav excludes magma).
+        // Molten Core only - open-world/pvp knockbacks keep their raw landing.
+        // Ragnaros's room is the exception: the nearest polygon is a rock pillar
+        // above fall-damage height, so land on the platform ring instead.
+        // Ragnaros's room keeps the real arc so the knockback still plays.
+        // Snapping the landing here cancels the flight, and the nearest polygon is a pillar.
+        // Placement back onto the spiral happens after the bot has landed.
+        static constexpr uint32 MOLTEN_CORE_MAP_ID = 409;
+        if (bot->GetMapId() == MOLTEN_CORE_MAP_ID && !BotInRagnarosRoom(bot) && !jumpInPlace)
+        {
+            WorldPosition landing = dest_calculated;
+            if (landing.ClosestCorrectPoint(15.0f, 10.0f, bot->GetInstanceId()))
+                dest_calculated = landing;
+        }
+
         SetJumpDestination(dest_calculated);
 
         // set highest jump point to relocate
@@ -2900,6 +2919,40 @@ bool PlayerbotAI::IsTank(Player* player, bool inGroup)
     BotRoles botRoles = AiFactory::GetPlayerRoles(player);
 
     return (botRoles & BOT_ROLE_TANK) != 0;
+}
+
+Player* PlayerbotAI::GetMainTank()
+{
+    Player* bot = GetBot();
+    if (!bot)
+        return nullptr;
+
+    Group* group = bot->GetGroup();
+    if (!group)
+        return IsTank(bot, true) ? bot : nullptr;
+
+    auto consider = [&](Player* member) -> bool
+    {
+        return member && member->IsAlive() && member->GetMapId() == bot->GetMapId() && IsTank(member, true);
+    };
+
+    // Raid frames are groups 1-8. Inside a group the roster order is top to bottom.
+    // The first living tank in that order is the main tank.
+    uint8 groupCount = group->IsRaidGroup() ? MAX_RAID_SUBGROUPS : 1;
+    for (uint8 subgroup = 0; subgroup < groupCount; ++subgroup)
+    {
+        for (Group::member_citerator itr = group->GetMemberSlots().begin(); itr != group->GetMemberSlots().end(); ++itr)
+        {
+            if (itr->group != subgroup)
+                continue;
+
+            Player* member = sObjectMgr.GetPlayer(itr->guid);
+            if (consider(member))
+                return member;
+        }
+    }
+
+    return nullptr;
 }
 
 bool PlayerbotAI::IsHeal(Player* player, bool inGroup)
@@ -4130,7 +4183,7 @@ Aura* PlayerbotAI::GetAura(uint32 spellId, Unit* unit, bool checkIsOwner)
             {
                 if (checkIsOwner)
                 {
-                    if (aura->GetHolder() && aura->GetHolder()->GetCasterGuid() == bot->GetObjectGuid())
+                    if (auraTmp->GetHolder() && auraTmp->GetHolder()->GetCasterGuid() == bot->GetObjectGuid())
                     {
                         aura = auraTmp;
                         break;
@@ -4386,6 +4439,12 @@ bool PlayerbotAI::CanCastSpell(std::string name, Unit* target, uint8 effectMask,
 
 bool PlayerbotAI::CanCastSpell(uint32 spellid, Unit* target, uint8 effectMask, bool checkHasSpell, Item* itemTarget, bool ignoreRange, bool ignoreInCombat, bool ignoreMount, SpellCastResult* checkResult)
 {
+    // ReachTargetAction::isUseful is the only caller that ignores range, combat,
+    // and mount together. It runs before the room multiplier and used to test
+    // line of sight for every spell while Ragnaros was up.
+    if (ignoreRange && ignoreInCombat && ignoreMount && bot->GetMapId() == 409 && BotInRagnarosRoom(bot))
+        return false;
+
     if (!spellid)
     {
         if (checkResult)

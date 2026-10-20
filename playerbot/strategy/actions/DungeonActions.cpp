@@ -1,5 +1,6 @@
 #include "DungeonActions.h"
 #include "playerbot/playerbot.h"
+#include "Maps/GridMap.h"
 #include "playerbot/strategy/values/PositionValue.h"
 #include "playerbot/strategy/AiObjectContext.h"
 #include "playerbot/PlayerbotAI.h"
@@ -276,8 +277,29 @@ bool MoveAwayFromCreature::isPossible()
     return false;
 }
 
+namespace
+{
+    bool PointInMagmaOrSlime(const WorldPosition& point)
+    {
+        const TerrainInfo* terrain = point.getTerrain();
+        if (!terrain || !terrain->CanCheckLiquidLevel(point.getX(), point.getY()))
+            return false;
+
+        GridMapLiquidData data;
+        uint32 const status = terrain->getLiquidStatus(point.getX(), point.getY(), point.getZ(), MAP_ALL_LIQUIDS, &data);
+        if (!(status & (LIQUID_MAP_IN_WATER | LIQUID_MAP_UNDER_WATER)))
+            return false;
+
+        return data.type_flags == MAP_LIQUID_TYPE_MAGMA || data.type_flags == MAP_LIQUID_TYPE_SLIME;
+    }
+}
+
 bool MoveAwayFromCreature::IsValidPoint(const WorldPosition& point, const std::list<Creature*>& creatures, const std::list<HazardPosition>& hazards)
 {
+    // A step into lava is never a safe point, including backing off Majordomo toward the rim.
+    if (PointInMagmaOrSlime(point))
+        return false;
+
     // Check if the point is not near other game objects
     if (!HasCreaturesNearby(point, creatures) && !IsHazardNearby(point, hazards))
     {

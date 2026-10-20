@@ -12,6 +12,8 @@
 
 namespace ai
 {
+    bool BotInRagnarosRoom(Player* bot);
+
     class ReachTargetAction : public MovementAction, public Qualified
     {
     public:
@@ -110,37 +112,9 @@ namespace ai
 
         uint32 reachFails = 0;
 
-        virtual bool isUseful() override
-		{
-            // Do not move if stay strategy is set
-            if (!ai->HasStrategy("stay", ai->GetState()))
-            {
-                Unit* target = GetTarget();
-                if (target)
-                {
-                    // Do not move while casting
-                    if (!bot->IsNonMeleeSpellCasted(true, false, true))
-                    {
-                        // Check if the spell for which the reach action is used for can be casted
-                        if (!spellName.empty() && !ai->CanCastSpell(spellName, target, true, nullptr, true, true, true))
-                        {
-                            return false;
-                        }
-
-                        // Force move if not in los
-                        if (bot->IsWithinLOSInMap(target, true))
-                        {
-                            // Check if the bot is already on the range required
-                            return bot->GetDistance(target, true, DIST_CALC_COMBAT_REACH) > range;
-                        }
-
-                        return true;
-                    }
-                }
-            }
-
-            return false;
-        }
+        // Out of line. An inline copy in an old object file was still the one
+        // the link picked, so the room check never ran.
+        virtual bool isUseful() override;
 
         virtual std::string GetTargetName() override { return "current target"; }
         std::string GetSpellName() const { return spellName; }

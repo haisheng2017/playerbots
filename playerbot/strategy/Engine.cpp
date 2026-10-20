@@ -6,6 +6,7 @@
 #include "Engine.h"
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/PerformanceMonitor.h"
+#include "actions/MoltenCoreDungeonActions.h"
 
 #ifdef BUILD_ELUNA
 #include "LuaEngine/LuaEngine.h"

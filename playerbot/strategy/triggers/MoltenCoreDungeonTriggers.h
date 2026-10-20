@@ -40,6 +40,264 @@ namespace ai
         MagmadarTooCloseTrigger(PlayerbotAI* ai) : CloseToCreatureTrigger(ai, "magmadar too close", 11982, 30.0f) {}
     };
 
+    class BaronGeddonStartFightTrigger : public StartBossFightTrigger
+    {
+    public:
+        BaronGeddonStartFightTrigger(PlayerbotAI* ai) : StartBossFightTrigger(ai, "start baron geddon fight", "baron geddon", 12056) {}
+    };
+
+    class BaronGeddonEndFightTrigger : public EndBossFightTrigger
+    {
+    public:
+        BaronGeddonEndFightTrigger(PlayerbotAI* ai) : EndBossFightTrigger(ai, "end baron geddon fight", "baron geddon", 12056) {}
+    };
+
+    class ShazzrahStartFightTrigger : public StartBossFightTrigger
+    {
+    public:
+        ShazzrahStartFightTrigger(PlayerbotAI* ai) : StartBossFightTrigger(ai, "start shazzrah fight", "shazzrah", 12264) {}
+    };
+
+    class ShazzrahEndFightTrigger : public EndBossFightTrigger
+    {
+    public:
+        ShazzrahEndFightTrigger(PlayerbotAI* ai) : EndBossFightTrigger(ai, "end shazzrah fight", "shazzrah", 12264) {}
+    };
+
+    class ShazzrahTooCloseTrigger : public CloseToCreatureTrigger
+    {
+    public:
+        ShazzrahTooCloseTrigger(PlayerbotAI* ai) : CloseToCreatureTrigger(ai, "shazzrah too close", 12264, 30.0f) {}
+    };
+
+    class SulfuronStartFightTrigger : public StartBossFightTrigger
+    {
+    public:
+        SulfuronStartFightTrigger(PlayerbotAI* ai) : StartBossFightTrigger(ai, "start sulfuron fight", "sulfuron", 12098) {}
+    };
+
+    class SulfuronEndFightTrigger : public EndBossFightTrigger
+    {
+    public:
+        SulfuronEndFightTrigger(PlayerbotAI* ai) : EndBossFightTrigger(ai, "end sulfuron fight", "sulfuron", 12098) {}
+    };
+
+    class MajordomoStartFightTrigger : public StartBossFightTrigger
+    {
+    public:
+        MajordomoStartFightTrigger(PlayerbotAI* ai) : StartBossFightTrigger(ai, "start majordomo fight", "majordomo", 12018) {}
+    };
+
+    class MajordomoEndFightTrigger : public EndBossFightTrigger
+    {
+    public:
+        MajordomoEndFightTrigger(PlayerbotAI* ai) : EndBossFightTrigger(ai, "end majordomo fight", "majordomo", 12018) {}
+    };
+
+    class MajordomoTooCloseTrigger : public CloseToCreatureTrigger
+    {
+    public:
+        MajordomoTooCloseTrigger(PlayerbotAI* ai) : CloseToCreatureTrigger(ai, "majordomo too close", 12018, 15.0f) {}
+    };
+
+    // Baron Geddon (12056): while the Inferno aura is up he pulses a fire nova around himself
+    class BaronGeddonInfernoTrigger : public Trigger
+    {
+    public:
+        BaronGeddonInfernoTrigger(PlayerbotAI* ai) : Trigger(ai, "baron geddon inferno", 1) {}
+        bool IsActive() override;
+    };
+
+    // Baron Geddon detonates Armageddon at 2% health: everyone run away from him
+    class BaronGeddonArmageddonTrigger : public Trigger
+    {
+    public:
+        BaronGeddonArmageddonTrigger(PlayerbotAI* ai) : Trigger(ai, "baron geddon armageddon", 1) {}
+        bool IsActive() override;
+    };
+
+    // Baron Geddon: this bot carries Living Bomb and explodes unless it stays away from others
+    class BaronGeddonLivingBombTrigger : public Trigger
+    {
+    public:
+        BaronGeddonLivingBombTrigger(PlayerbotAI* ai) : Trigger(ai, "baron geddon living bomb", 1) {}
+        bool IsActive() override;
+    };
+
+    // True while a non-tank keeps a boss as its target even though the encounter's
+    // real targets are still up: Majordomo's Flamewakers and Sulfuron's priests
+    class BossWithAddsTargetTrigger : public Trigger
+    {
+    public:
+        BossWithAddsTargetTrigger(PlayerbotAI* ai, std::string name, uint32 bossEntry, std::vector<uint32> addEntries)
+            : Trigger(ai, name, 1), bossEntry(bossEntry), addEntries(addEntries) {}
+        bool IsActive() override;
+
+    private:
+        uint32 bossEntry;
+        std::vector<uint32> addEntries;
+    };
+
+    // Majordomo cannot be killed at all: the fight is won when his adds die
+    class MajordomoTargetTrigger : public BossWithAddsTargetTrigger
+    {
+    public:
+        MajordomoTargetTrigger(PlayerbotAI* ai) : BossWithAddsTargetTrigger(ai, "majordomo target", 12018, {11663, 11664}) {}
+        bool IsActive() override;
+    };
+
+    // Off-tanks each hold one add, including the skull. Elites first, then the healers.
+    class MajordomoOffTankTrigger : public Trigger
+    {
+    public:
+        MajordomoOffTankTrigger(PlayerbotAI* ai) : Trigger(ai, "majordomo off tank", 1) {}
+        bool IsActive() override;
+    };
+
+    // Boss is on anyone but the main tank, including another tank.
+    class MajordomoMainTankTauntTrigger : public Trigger
+    {
+    public:
+        MajordomoMainTankTauntTrigger(PlayerbotAI* ai) : Trigger(ai, "majordomo main tank taunt", 1) {}
+        bool IsActive() override;
+    };
+
+    // Main tank teleported or dropped: one off-tank holds the boss until he has it back.
+    class MajordomoCoverBossTrigger : public Trigger
+    {
+    public:
+        MajordomoCoverBossTrigger(PlayerbotAI* ai) : Trigger(ai, "majordomo cover boss", 1) {}
+        bool IsActive() override;
+    };
+
+    // In the lava around the platform, whether teleported there or walked in.
+    class MajordomoLavaTrigger : public Trigger
+    {
+    public:
+        MajordomoLavaTrigger(PlayerbotAI* ai) : Trigger(ai, "majordomo lava", 1) {}
+        bool IsActive() override;
+    };
+
+    // Mages sheep the healers that are not the kill target. After four adds die the
+    // remaining healers gain polymorph immunity and the cast stops landing.
+    class MajordomoPolymorphHealerTrigger : public Trigger
+    {
+    public:
+        MajordomoPolymorphHealerTrigger(PlayerbotAI* ai) : Trigger(ai, "majordomo polymorph healer", 1) {}
+        bool IsActive() override;
+    };
+
+    // Magic Reflection (20619) and Damage Shield (21075) land on every add together.
+    // Casters stop spells for the first, melee stops swinging for the second.
+    class MajordomoShieldTrigger : public Trigger
+    {
+    public:
+        MajordomoShieldTrigger(PlayerbotAI* ai) : Trigger(ai, "majordomo shield", 1) {}
+        bool IsActive() override;
+    };
+
+    // Sulfuron's Flamewaker priests heal each other and the boss: they must die first
+    class SulfuronTargetTrigger : public BossWithAddsTargetTrigger
+    {
+    public:
+        SulfuronTargetTrigger(PlayerbotAI* ai) : BossWithAddsTargetTrigger(ai, "sulfuron target", 12098, {11662}) {}
+    };
+
+    // The pull-back for the main tank: while the adds are up he belongs on the boss,
+    // even when a one-shot player command (attack my target) or the pull put him on an add
+    class MainTankOffBossTrigger : public Trigger
+    {
+    public:
+        MainTankOffBossTrigger(PlayerbotAI* ai, std::string name, uint32 bossEntry, std::vector<uint32> addEntries)
+            : Trigger(ai, name, 1), bossEntry(bossEntry), addEntries(addEntries) {}
+        bool IsActive() override;
+
+    private:
+        uint32 bossEntry;
+        std::vector<uint32> addEntries;
+    };
+
+    class SulfuronMainTankOffBossTrigger : public MainTankOffBossTrigger
+    {
+    public:
+        SulfuronMainTankOffBossTrigger(PlayerbotAI* ai) : MainTankOffBossTrigger(ai, "sulfuron main tank off boss", 12098, {11662}) {}
+    };
+
+    class MajordomoMainTankOffBossTrigger : public MainTankOffBossTrigger
+    {
+    public:
+        MajordomoMainTankOffBossTrigger(PlayerbotAI* ai) : MainTankOffBossTrigger(ai, "majordomo main tank off boss", 12018, {11663, 11664}) {}
+    };
+
+    class RagnarosStartFightTrigger : public StartBossFightTrigger
+    {
+    public:
+        RagnarosStartFightTrigger(PlayerbotAI* ai) : StartBossFightTrigger(ai, "start ragnaros fight", "ragnaros", 11502) {}
+    };
+
+    class RagnarosEndFightTrigger : public EndBossFightTrigger
+    {
+    public:
+        RagnarosEndFightTrigger(PlayerbotAI* ai) : EndBossFightTrigger(ai, "end ragnaros fight", "ragnaros", 11502) {}
+    };
+
+    // Ranged/healers stay out of the boss's reach: while emerged he hurls everyone
+    // around himself into the air (Wrath of Ragnaros) and the flame he drops on
+    // random mana users pulses heavy fire damage
+    class RagnarosTooCloseTrigger : public CloseToCreatureTrigger
+    {
+    public:
+        RagnarosTooCloseTrigger(PlayerbotAI* ai) : CloseToCreatureTrigger(ai, "ragnaros too close", 11502, 29.0f) {}
+    };
+
+    // The flame Ragnaros summons on a random mana user (Might of Ragnaros) hits
+    // ~2000 fire damage around itself: run away from it
+    class RagnarosFlameNearTrigger : public Trigger
+    {
+    public:
+        RagnarosFlameNearTrigger(PlayerbotAI* ai) : Trigger(ai, "ragnaros flame near", 2) {}
+        bool IsActive() override;
+    };
+
+    // Lava underfoot only. The old trigger listed every patch inside sight range and
+    // stored it as a hazard, for every bot, on every tick. That scan is what grows
+    // until the world tick stalls, and it drops the moment bots die or the patches expire.
+    class RagnarosLavaBurstTrigger : public Trigger
+    {
+    public:
+        RagnarosLavaBurstTrigger(PlayerbotAI* ai) : Trigger(ai, "ragnaros lava burst", 2) {}
+        bool IsActive() override;
+    };
+
+    // Ragnaros submerges at 3:00 and spawns 8 Sons of Flame; they must die within
+    // 90s (he re-emerges regardless and they keep fighting alongside him). While
+    // they are up the whole raid switches to them - submerged Ragnaros cannot be
+    // attacked, so the generic assist would switch on its own anyway
+    // Hold a slot on the platform ring instead of searching the rock navmesh.
+    class RagnarosSpreadTrigger : public Trigger
+    {
+    public:
+        RagnarosSpreadTrigger(PlayerbotAI* ai) : Trigger(ai, "ragnaros spread", 1) {}
+        bool IsActive() override;
+    };
+
+    class RagnarosSonTargetTrigger : public Trigger
+    {
+    public:
+        RagnarosSonTargetTrigger(PlayerbotAI* ai) : Trigger(ai, "ragnaros son target", 1) {}
+        bool IsActive() override;
+    };
+
+    // Ragnaros is rooted but nukes random players when nobody stands in melee:
+    // pull the main tank back onto him whenever he slipped off (Wrath of Ragnaros
+    // knocks everyone around the boss into the air)
+    class RagnarosMainTankOffBossTrigger : public Trigger
+    {
+    public:
+        RagnarosMainTankOffBossTrigger(PlayerbotAI* ai) : Trigger(ai, "ragnaros main tank off boss", 1) {}
+        bool IsActive() override;
+    };
+
     class FireProtectionPotionReadyTrigger : public ItemBuffReadyTrigger
     {
     public:
@@ -52,9 +310,9 @@ namespace ai
         MCRuneInSightTrigger(PlayerbotAI* ai) : ValueTrigger(ai, "mc rune in sight", 1)
         {
             qualifier = "and::{"
-                "action possible::use id::17333,"
-                "has object::go usable filter::go trapped filter::entry filter::{gos in sight,mc runes},"
-                "not::has object::entry filter::{gos close,mc runes}"
+                "or::{action possible::use id::17333,action possible::use id::22754},"
+                "has object::mc dousable rune filter::go usable filter::go trapped filter::entry filter::{gos in sight,mc runes},"
+                "not::has object::mc dousable rune filter::go usable filter::entry filter::{gos close,mc runes}"
                 "}";
         }
     };
@@ -62,6 +320,26 @@ namespace ai
     class MCRuneCloseTrigger : public ValueTrigger
     {
     public:
-        MCRuneCloseTrigger(PlayerbotAI* ai) : ValueTrigger(ai, "mc rune close", 1) { qualifier = "has object::go usable filter::entry filter::{gos close,mc runes}"; }
+        MCRuneCloseTrigger(PlayerbotAI* ai) : ValueTrigger(ai, "mc rune close", 1)
+        {
+            qualifier = "has object::mc dousable rune filter::go usable filter::entry filter::{gos close,mc runes}";
+        }
+    };
+
+    // Fires once the douse cast is no longer in progress. The action decides whether it landed.
+    class MCRuneDousedTrigger : public Trigger
+    {
+    public:
+        MCRuneDousedTrigger(PlayerbotAI* ai) : Trigger(ai, "mc rune doused", 1) {}
+        bool IsActive() override;
+    };
+
+    class MCQuintessenceMissingTrigger : public Trigger
+    {
+    public:
+        // Check interval of 60 s throttles the refill that would otherwise re-arm the
+        // douse loop every tick next to an already-doused rune (the GO never goes away)
+        MCQuintessenceMissingTrigger(PlayerbotAI* ai) : Trigger(ai, "mc quintessence missing", 60) {}
+        bool IsActive() override;
     };
 }

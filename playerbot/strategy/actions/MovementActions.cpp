@@ -16,6 +16,7 @@
 #include "Entities/Vehicle.h"
 #endif
 #include "playerbot/strategy/generic/CombatStrategy.h"
+#include "playerbot/strategy/actions/MoltenCoreDungeonActions.h"
 
 using namespace ai;
 
@@ -680,7 +681,19 @@ bool MovementAction::WaitForTransport()
     return false;
 }
 
-TravelPath MovementAction::ResolveMovePath(const WorldPosition& startPosition, const WorldPosition& endPosition, Unit* mover, LastMovement& lastMove)    
+// Arm the failed-path backoff: skip repeating the full navmesh search for
+// AiPlayerbot.PathErrorDelay ms while the destination stays (roughly) the
+// same, and track when the ongoing failure streak began.
+static void notePathFailed(LastMovement& lastMove, WorldPosition const& endPos)
+{
+    time_t now = time(0);
+    if (!lastMove.pathFailedSince)
+        lastMove.pathFailedSince = now;
+    lastMove.nextPathTry = now + std::max((time_t)1, (time_t)(sPlayerbotAIConfig.pathErrorDelay / 1000));
+    lastMove.lastFailedPathTarget = endPos;
+}
+
+TravelPath MovementAction::ResolveMovePath(const WorldPosition& startPosition, const WorldPosition& endPosition, Unit* mover, LastMovement& lastMove)
 {
     float totalDistance = startPosition.distance(endPosition);
     float maxDistChange = totalDistance * 0.1f;
@@ -732,6 +745,7 @@ TravelPath MovementAction::ResolveMovePath(const WorldPosition& startPosition, c
             return outMovePath;
         }
 
+        notePathFailed(lastMove, endPosition); // navmesh search produced nothing — likely unreachable
         outMovePath.addPoint(endPosition);
     }
 
@@ -1090,6 +1104,22 @@ bool MovementAction::MoveTo2(const WorldPosition& endPos, bool idle, bool react,
     if (!endPos.isValid())
         return false;
 
+    WorldPosition movePos = endPos;
+
+    // The rock mesh in Ragnaros's room is a multi-second search, and a straight
+    // line cuts across the lava. Walk the dry band, one segment at a time.
+    if (bot->GetMapId() == 409 && BotInRagnarosRoom(bot))
+    {
+        float stepX = 0.0f;
+        float stepY = 0.0f;
+        float stepZ = 0.0f;
+        if (!RagnarosRouteStep(bot, movePos.getX(), movePos.getY(), movePos.getZ(), stepX, stepY, stepZ))
+            return false;
+
+        movePos = WorldPosition(movePos.getMapId(), stepX, stepY, stepZ);
+        noPath = true;
+    }
+
     UpdateMovementState();
 
     if (!ai->CanMove())
@@ -1116,12 +1146,12 @@ bool MovementAction::MoveTo2(const WorldPosition& endPos, bool idle, bool react,
         return true;
 
     WorldPosition startPos(bot);
-    float totalDistance = startPos.distance(endPos);
+    float totalDistance = startPos.distance(movePos);
     float maxDistChange = totalDistance * 0.1f;
 
     if (totalDistance < sPlayerbotAIConfig.targetPosRecalcDistance)
     {
-        if (!lastMove.lastPath.empty() && lastMove.lastPath.getBack().distance(endPos) <= totalDistance)
+        if (!lastMove.lastPath.empty() && lastMove.lastPath.getBack().distance(movePos) <= totalDistance)
             lastMove.clear();
 
         if (mover == bot)
@@ -1133,29 +1163,75 @@ bool MovementAction::MoveTo2(const WorldPosition& endPos, bool idle, bool react,
     }
 
     WorldPosition flyMovePosition;
-    if (FlyDirect(startPos, endPos, flyMovePosition, lastMove.lastPath))
+    if (FlyDirect(startPos, movePos, flyMovePosition, lastMove.lastPath))
         return true;
 
     
     bool isWalking = false;
 
-    TravelPath movePath = ResolveMovePath(startPos, endPos, mover, lastMove);
+    // A straight-line move never searches the navmesh. The path is the destination alone.
+    TravelPath movePath;
+    if (noPath)
+    {
+        movePath.addPoint(movePos);
+    }
+    else
+    {
+        // Throttle retries of failed path searches: a failed search otherwise
+        // re-runs the whole navmesh chain every think tick, which multiplies
+        // across a whole raid once a knockback dropped bots somewhere unreachable.
+        time_t now = time(0);
+        if (lastMove.nextPathTry > now && lastMove.lastFailedPathTarget.distance(movePos) < sPlayerbotAIConfig.tooCloseDistance)
+        {
+            // Sustained failure: raids disable every generic stuck recovery,
+            // so after 5s of not being able to path at all, teleport the bot
+            // back to the (snapped) destination so it can keep playing.
+            // Never inside battlegrounds - a teleport would warp pvp.
+            if (!bot->InBattleGround() && lastMove.pathFailedSince && lastMove.pathFailedSince + 5 <= now)
+            {
+                float rescueX = movePos.getX();
+                float rescueY = movePos.getY();
+                float rescueZ = movePos.getZ();
+                // Ragnaros's rocks are legal navmesh and sit above fall-damage height.
+                if (TryRagnarosRingLanding(bot, rescueX, rescueY, rescueZ))
+                    return false;
+
+                WorldPosition rescue = movePos;
+                if (rescue.getMapId() == bot->GetMapId() && rescue.ClosestCorrectPoint(15.0f, 10.0f, bot->GetInstanceId()))
+                {
+                    sLog.outDetail("%s: no path to destination since %u — teleporting back.", bot->GetName(), (uint32)lastMove.pathFailedSince);
+                    lastMove.clear();
+                    return bot->TeleportTo(rescue.getMapId(), rescue.getX(), rescue.getY(), rescue.getZ(), startPos.getAngleTo(rescue));
+                }
+            }
+
+            return false;
+        }
+
+        movePath = ResolveMovePath(startPos, movePos, mover, lastMove);
+    }
 
     lastMove.setPath(movePath);
 
     if (movePath.empty())
+    {
+        notePathFailed(lastMove, movePos);
         return false;
+    }
 
      
-    if (!bot->GetTransport())
+    if (!noPath && !bot->GetTransport())
         movePath.makeShortCut(startPos, sPlayerbotAIConfig.reactDistance, bot);
 
     if (movePath.empty())
     {
+        notePathFailed(lastMove, movePos);
         lastMove.setPath(movePath);
-        return true; // Path collapsed — will rebuild next tick.
+        return true; // Path collapsed — will retry after the path error delay.
     }
 
+    lastMove.nextPathTry = 0;
+    lastMove.pathFailedSince = 0;
 
     TravelNodePathType pathType = TravelNodePathType::none;
     uint32 entry = 0;
@@ -1189,13 +1265,14 @@ bool MovementAction::MoveTo2(const WorldPosition& endPos, bool idle, bool react,
 
     if (movePath.empty())
     {
+        notePathFailed(lastMove, movePos);
         return false;
     }
 
     // Only touch points on the map the bot is actually on, so a cross-map destination can never
     // resolve another map's terrain/VMap. (The old front-map guard did not imply the bot's map.)
     // Keep the "don't surface a deliberate dive" rule, but only for a destination on our own map.
-    bool endUnderwater = endPos.getMapId() == bot->GetMapId() && endPos.isUnderWater();
+    bool endUnderwater = movePos.getMapId() == bot->GetMapId() && movePos.isUnderWater();
     for (auto& p : movePath.getPath())
     {
         if (p.point.getMapId() == bot->GetMapId() && p.point.isUnderWater() && !endUnderwater)
@@ -1221,7 +1298,8 @@ bool MovementAction::MoveTo2(const WorldPosition& endPos, bool idle, bool react,
             ai->InterruptSpell(false);
     }
 
-    if (totalDistance > sPlayerbotAIConfig.reactDistance && !detailedMove)
+    // Ragnaros's room is walked, including across the lava. A long step must not blink.
+    if (totalDistance > sPlayerbotAIConfig.reactDistance && !detailedMove && !(bot->GetMapId() == 409 && BotInRagnarosRoom(bot)))
     {
         WorldPosition teleportPosition = movePath.getBack();
         if (!ai->HasPlayerNearby(teleportPosition))
@@ -1254,7 +1332,7 @@ bool MovementAction::MoveTo2(const WorldPosition& endPos, bool idle, bool react,
     if (bot->IsFreeFlying())
     {
         if (bot->HasMovementFlag(MOVEFLAG_SWIMMING) && startPos.isInWater() && !startPos.isUnderWater() &&
-            (endPos.getMapId() != bot->GetMapId() || !endPos.isInWater()))
+            (movePos.getMapId() != bot->GetMapId() || !movePos.isInWater()))
         {
             generatePath = true;
         }
@@ -2348,6 +2426,9 @@ void MovementAction::UpdateMovementState()
 
 bool MovementAction::Follow(Unit* target, float distance, float angle)
 {
+    if (bot->GetMapId() == 409 && BotInRagnarosRoom(bot))
+        return MoveTo(target->GetMapId(), target->GetPositionX(), target->GetPositionY(), target->GetPositionZ());
+
     if (!ai->IsSafe(target))
         return MoveTo2(target);
 
@@ -2608,6 +2689,10 @@ WorldPosition CalculatePerpendicularPoint(const WorldPosition& A, const WorldPos
 
 bool MovementAction::ChaseTo(WorldObject* obj, float distance, float angle)
 {
+    // Straight chase cuts across the pool. The route step walks the dry band.
+    if (obj && bot->GetMapId() == 409 && BotInRagnarosRoom(bot))
+        return MoveTo(obj->GetMapId(), obj->GetPositionX(), obj->GetPositionY(), obj->GetPositionZ());
+
     if (!ai->CanMove())
     {
         return false;
@@ -2642,7 +2727,7 @@ bool MovementAction::ChaseTo(WorldObject* obj, float distance, float angle)
         Unit* target = static_cast<Unit*>(obj);
         Stance* stance = AI_VALUE(Stance*, "stance");
 
-        if (stance && stance->getName() != "turnback")
+        if (stance)
         {
             WorldLocation stanceLoc = stance->GetLocation();
 
@@ -2737,8 +2822,9 @@ bool MovementAction::ChaseTo(WorldObject* obj, float distance, float angle)
     if (bot->GetMotionMaster()->GetCurrentMovementGeneratorType() == CHASE_MOTION_TYPE)
     {
         if (!bot->IsStopped() &&
-            sServerFacade.GetChaseTarget(bot) == obj && 
-            sServerFacade.GetChaseOffset(bot) == distance)
+            sServerFacade.GetChaseTarget(bot) == obj &&
+            sServerFacade.GetChaseOffset(bot) == distance &&
+            sServerFacade.GetChaseAngle(bot) == angle)
         {
             bot->SetTarget(obj); //Needed to keep chase going in combat.
             bot->Attack((Unit*)obj, false); //Needed to keep chase going in combat.

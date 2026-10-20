@@ -5,6 +5,43 @@
 
 using namespace ai;
 
+bool ReachTargetAction::isUseful()
+{
+    // Checked before the platform multiplier. The body lives here so the
+    // link cannot keep an older inline copy that still ray-traces.
+    if (bot->GetMapId() == 409 && BotInRagnarosRoom(bot))
+    {
+        if (ai->HasStrategy("stay", ai->GetState()) || ai->IsJumping())
+            return false;
+
+        Unit* target = GetTarget();
+        if (!target || bot->IsNonMeleeSpellCasted(true, false, true))
+            return false;
+
+        if (range <= 0.0f)
+            return !bot->CanReachWithMeleeAttack(target);
+
+        return bot->GetDistance(target, true, DIST_CALC_COMBAT_REACH) > range;
+    }
+
+    if (!ai->HasStrategy("stay", ai->GetState()))
+    {
+        Unit* target = GetTarget();
+        if (target && !bot->IsNonMeleeSpellCasted(true, false, true))
+        {
+            if (!spellName.empty() && !ai->CanCastSpell(spellName, target, true, nullptr, true, true, true))
+                return false;
+
+            if (bot->IsWithinLOSInMap(target, true))
+                return bot->GetDistance(target, true, DIST_CALC_COMBAT_REACH) > range;
+
+            return true;
+        }
+    }
+
+    return false;
+}
+
 bool MeleeAction::isUseful()
 {
     // do not allow if can't attack from vehicle

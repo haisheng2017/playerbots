@@ -4,6 +4,7 @@
 #include "Grids/GridNotifiers.h"
 #include "Grids/GridNotifiersImpl.h"
 #include "Grids/CellImpl.h"
+#include "Maps/InstanceData.h"
 
 using namespace ai;
 using namespace MaNGOS;
@@ -220,6 +221,56 @@ std::list<GuidPosition> GoUsableFilterValue::Calculate()
     }
 
     return result;
+}
+
+namespace ai
+{
+int32 MoltenCoreRuneEncounterType(uint32 goEntry)
+{
+    switch (goEntry)
+    {
+        case 176956: return 1; // Rune of Kress, Magmadar
+        case 176957: return 2; // Rune of Mohn, Gehennas
+        case 176955: return 3; // Rune of Blaz, Garr
+        case 176953: return 4; // Rune of Mazj, Shazzrah
+        case 176952: return 5; // Rune of Zeth, Baron Geddon
+        case 176954: return 6; // Rune of Theri, Golemagg
+        case 176951: return 7; // Rune of Koro, Sulfuron
+        default: return -1;
+    }
+}
+
+uint32 MoltenCoreRuneEncounterState(Player* bot, uint32 goEntry)
+{
+    int32 type = MoltenCoreRuneEncounterType(goEntry);
+    if (type < 0 || !bot || !bot->GetMap())
+        return 0;
+
+    InstanceData* data = bot->GetMap()->GetInstanceData();
+    if (!data)
+        return 0;
+
+    return data->GetData(uint32(type));
+}
+
+std::list<GuidPosition> McDousableRuneFilterValue::Calculate()
+{
+    std::list<GuidPosition> guidList = AI_VALUE(std::list<GuidPosition>, getQualifier());
+    std::list<GuidPosition> result;
+
+    for (GuidPosition guid : guidList)
+    {
+        if (!guid.IsGameObject())
+            continue;
+
+        // Boss still up: the rune script refuses to count the use, but Use() still flags
+        // the GO in-use, so a later real attempt would never happen.
+        if (MoltenCoreRuneEncounterState(bot, guid.GetEntry()) == MC_RUNE_BOSS_DEAD)
+            result.push_back(guid);
+    }
+
+    return result;
+}
 }
 
 std::list<GuidPosition> GoTrappedFilterValue::Calculate()

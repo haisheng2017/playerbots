@@ -23,6 +23,9 @@ namespace ai
             lastMoveShort = other.lastMoveShort;
             nextTeleport = other.nextTeleport;
             moveEvent = Event();
+            nextPathTry = 0;
+            pathFailedSince = 0;
+            lastFailedPathTarget = WorldPosition();
         }
 
         void clear()
@@ -34,6 +37,9 @@ namespace ai
             lastFlee = 0;
             lastMoveShort = WorldPosition();
             nextTeleport = 0;
+            nextPathTry = 0;
+            pathFailedSince = 0;
+            lastFailedPathTarget = WorldPosition();
             moveEvent = Event();
         }
 
@@ -54,6 +60,11 @@ namespace ai
         TravelPath lastPath;
         WorldPosition lastMoveShort;
         time_t nextTeleport;
+        // Failed path search bookkeeping: earliest retry time, start of the
+        // ongoing failure streak and the destination it failed to reach
+        time_t nextPathTry = 0;
+        time_t pathFailedSince = 0;
+        WorldPosition lastFailedPathTarget;
         Event moveEvent;
     };
 

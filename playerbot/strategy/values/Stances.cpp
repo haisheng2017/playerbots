@@ -13,7 +13,8 @@ Unit* Stance::GetTarget()
     if (target) return target;
 
     ObjectGuid attackTarget = context->GetValue<ObjectGuid>("attack target")->Get();
-    if (attackTarget) ai->GetUnit(attackTarget);
+    if (attackTarget)
+        return ai->GetUnit(attackTarget);
 
     return NULL;
 }

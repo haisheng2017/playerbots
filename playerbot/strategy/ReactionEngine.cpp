@@ -2,6 +2,7 @@
 #include "playerbot/playerbot.h"
 
 #include "ReactionEngine.h"
+#include "actions/MoltenCoreDungeonActions.h"
 #include <iomanip>
 
 using namespace ai;
@@ -36,6 +37,8 @@ ReactionEngine::ReactionEngine(PlayerbotAI* ai, AiObjectContext* factory, BotSta
 
 bool ReactionEngine::FindReaction(bool isStunned)
 {
+    bool found = false;
+
     // Don't find a new reaction if the previous reaction is still running
     if(!IsReacting())
     {
@@ -77,7 +80,8 @@ bool ReactionEngine::FindReaction(bool isStunned)
                         reaction->setRelevance(reactionRelevance);
 
                         // Check if the reaction is useful
-                        if (reaction->isUseful() && (!isStunned || reaction->isUsefulWhenStunned()))
+                        bool const reactionUseful = reaction->isUseful() && (!isStunned || reaction->isUsefulWhenStunned());
+                        if (reactionUseful)
                         {
                             // Process the multipliers
                             for (std::list<Multiplier*>::iterator i = multipliers.begin(); i != multipliers.end(); i++)
@@ -104,7 +108,8 @@ bool ReactionEngine::FindReaction(bool isStunned)
                             }
 
                             // Check if the reaction is possible
-                            if ((reactionRelevance > 0.0f) && reaction->isPossible())
+                            bool const reactionPossible = reaction->isPossible();
+                            if ((reactionRelevance > 0.0f) && reactionPossible)
                             {
                                 // Reaction found
                                 incomingReaction.SetAction(reaction);
@@ -130,10 +135,10 @@ bool ReactionEngine::FindReaction(bool isStunned)
         // Remove the expired reactions
         queue.RemoveExpired();
 
-        return incomingReaction.IsValid();
+        found = incomingReaction.IsValid();
     }
 
-    return false;
+    return found;
 }
 
 bool ReactionEngine::StartReaction()
